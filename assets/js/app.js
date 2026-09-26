@@ -15,6 +15,14 @@ import { Chess, WHITE, BLACK, typeOf, colorOf, fromAlgebraic } from './engine.js
 import { pieceMarkup, GLYPH } from './pieces.js';
 import { loadLang, applyLang, t } from './i18n.js';
 
+/**
+ * The online controller is imported here and api.js is deliberately NOT imported
+ * by this file. Everything the board does online goes through online.js, so
+ * there is exactly one place where "the server owns the game" can be broken by
+ * accident - and it is not in the file that draws squares.
+ */
+import * as online from './online.js';
+
 const $ = (id) => document.getElementById(id);
 const FILES = 'abcdefgh';
 
@@ -186,12 +194,23 @@ function renderMoves(moves) {
 // ── making moves ────────────────────────────────────────────────────────────
 function humanToMove() {
   if (S.over || S.thinking) return false;
+  // Online is not a mode the board decides anything about. isMyTurn() has already
+  // asked the server (and only the server) whose move it is; a local board that
+  // thinks it is white's turn is not evidence of anything.
+  if (online.isOnline()) return online.isMyTurn();
   return S.mode === 'duo' || S.chess.turnColor() === S.playerColor;
 }
 
 function canPick(name) {
   const piece = S.chess.get(fromAlgebraic(name));
-  return !!piece && (S.mode === 'duo' || (colorOf(piece) === S.playerColor && S.chess.turnColor() === S.playerColor));
+  if (!piece) return false;
+  if (online.isOnline()) {
+    // The local board is only used to answer "is there a piece there"; whether
+    // it is OURS is the server's business, and asking it per-click would be a
+    // round trip for something isMyTurn() already knows.
+    return colorOf(piece) === online.myColor();
+  }
+  return S.mode === 'duo' || (colorOf(piece) === S.playerColor && S.chess.turnColor() === S.playerColor);
 }
 
 function select(name) {
@@ -223,6 +242,18 @@ function playMove(from, to, promotion) {
   const legal = S.chess.moves().filter((m) => m.from === from && m.to === to);
   if (!legal.length) return false;
   if (!promotion && legal.length > 1) return askPromotion(from, to, legal);
+
+  // Online: the move is NOT played on this board. It is sent, and the board is
+  // rebuilt from whatever the server says happened. Playing it locally first and
+  // then correcting is how two players end up looking at different positions.
+  if (online.isOnline()) {
+    S.selected = null;
+    S.targets = new Map();
+    render();
+    online.play(from, to, promotion || legal[0].promotion);
+    return true;
+  }
+
   const mv = S.chess.move({ from, to, promotion: promotion || legal[0].promotion });
   S.selected = null;
   S.targets = new Map();
@@ -364,6 +395,13 @@ function afterMove() {
   if (c.isThreefoldRepetition()) return finish(0, t(S.lang, 'resultThreefold'));
   if (c.isDrawByFiftyMoves()) return finish(0, t(S.lang, 'resultFifty'));
 
+  // Online never gets here: a move in an online game does not go through
+  // afterMove() at all, because the server decides whether it happened and what
+  // the position is afterwards. The engine and the ending checks belong to games
+  // played on this board, and running them here would end an online game the
+  // moment a fifty-move counter ran out - with no draw offered and no agreement.
+  if (online.isOnline()) return;
+
   if (!S.clock.running) startClock();
   if (S.mode === 'ai' && c.turnColor() !== S.playerColor) askEngine();
 }
@@ -444,6 +482,15 @@ function paintBars() {
   // why the two disagreed with each other.
   const topIsWhite = S.flipped;                     // the top row is rank 8 when unflipped
   const nameOf = (isWhite) => {
+    // Online: a real opponent's name, or "spectating" when this browser is not
+    // sitting in the game at all. Showing "You" and "Engine" over two human
+    // players was the giveaway that the whole online path had been stubbed.
+    if (online.isOnline()) {
+      const g = online.game();
+      const who = isWhite ? g?.white : g?.black;
+      if (who?.display_name) return who.display_name;
+      return isWhite ? t(S.lang, 'white') : t(S.lang, 'black');
+    }
     if (S.mode === 'duo') return t(S.lang, isWhite ? 'white' : 'black');
     const mine = isWhite === (S.playerColor === WHITE);
     return mine ? t(S.lang, 'you') : t(S.lang, 'engine');
@@ -484,19 +531,93 @@ function finish(result, reason) {
   $('veilSub').textContent = reason;
   const actions = $('veilActions');
   actions.textContent = '';
+  // In an online game "New game" would start something unrelated and look like
+  // the game restarting itself, so the button goes back to the lobby instead.
   const again = document.createElement('button');
   again.className = 'btn btn-primary';
   again.type = 'button';
-  again.textContent = t(S.lang, 'btnNewGame');
-  again.onclick = () => { $('boardVeil').hidden = true; newGame(); };
+  if (online.isOnline()) {
+    again.textContent = t(S.lang, 'tabOnline');
+    again.onclick = () => { $('boardVeil').hidden = true; leaveOnline(); };
+  } else {
+    again.textContent = t(S.lang, 'btnNewGame');
+    again.onclick = () => { $('boardVeil').hidden = true; newGame(); };
+  }
   const review = document.createElement('button');
   review.className = 'btn btn-ghost';
   review.type = 'button';
   review.textContent = t(S.lang, 'tabGame');
-  review.onclick = () => { $('boardVeil').hidden = true; };
+  review.onclick = () => { $('boardVeil').hidden = false; $('boardVeil').hidden = true; };
   actions.append(again, review);
   $('boardVeil').hidden = false;
   paintBars();
+}
+
+/**
+ * An online game ended, and the server says how.
+ *
+ * `result` is from WHITE's point of view, so it has to be flipped for a player
+ * who is sitting on the black side - otherwise the player who resigned is shown
+ * the win screen. This was the single most likely bug in the whole online path
+ * and it is why the reason string comes from the server too: "you flagged" and
+ * "your opponent resigned" are different sentences and the client cannot tell
+ * them apart from a result number.
+ */
+function onlineFinished(g) {
+  const lang = S.lang;
+  const drew = g.result === 0;
+  // result is from white's point of view. "Is it my colour" is the wrong question
+  // to ask of it - a player who reloads mid-game has two seats and no way to be
+  // certain - so the winner's own id decides it.
+  const iWon = g.winner != null ? g.winner === online.myUserId() : (g.me === 'white' ? g.result > 0 : g.result < 0);
+  finish(drew ? 0 : (iWon ? 1 : -1), onlineReasonText(g));
+}
+
+function onlineReasonText(g) {
+  const lang = S.lang;
+  switch (g.reason) {
+    case 'checkmate': return t(lang, 'resultCheckmate');
+    case 'stalemate': return t(lang, 'resultStalemate');
+    case 'material': return t(lang, 'resultMaterial');
+    case 'threefold': return t(lang, 'resultThreefold');
+    case 'fifty': return t(lang, 'resultFifty');
+    case 'agreement': return t(lang, 'resultAgreement');
+    case 'abandoned': return t(lang, 'resultAbandoned');
+    // flagged is 'white' | 'black' - the side that ran out, told to us by the
+    // server. Working it out from the result number here is how the player who
+    // flagged ends up reading "your opponent ran out of time".
+    case 'flag': return t(lang, g.flagged === g.me ? 'resultTimeYou' : 'resultTimeOther');
+    // winner is a user id. The player who resigned is the LOSER, so being the
+    // winner is exactly the case where it was the other one - this comparison
+    // was the wrong way round, and told the winner they had resigned.
+    case 'resign': return t(lang, g.winner === online.myUserId() ? 'resignedOther' : 'resigned');
+    default: return t(lang, 'resultOther');
+  }
+}
+
+/** Leave an online game and go back to a local board. */
+function leaveOnline() {
+  online.leave();
+  S.over = false;
+  S.thinking = false;
+  S.selected = null;
+  S.targets = new Map();
+  $('boardVeil').hidden = true;
+  newGame();
+  paintOnlinePanel();
+}
+
+/**
+ * The server sent a new game state. This is the ONE function that may replace
+ * the local board, and it does so by rebuilding from the server's move list.
+ */
+function onOnlineChange({ rebuilt, chess }) {
+  if (rebuilt && chess) S.chess = chess;
+  S.over = false;
+  render();
+  paintBars();
+  paintClocks();
+  paintOnlinePanel();
 }
 
 // ── clocks ──────────────────────────────────────────────────────────────────
@@ -539,6 +660,7 @@ function readTimeControl() {
 }
 
 function startClock() {
+  if (online.isOnline()) return;      // the server's clock is already running
   if (S.clock.running || S.clock.unlimited) return;
   S.clock.running = true;
   S.clock.last = Date.now();
@@ -562,6 +684,7 @@ function startClock() {
 
 /** The increment belongs to the side that JUST moved, i.e. not the side to move. */
 function addIncrement() {
+  if (online.isOnline()) return;     // the server granted it, or did not
   if (!S.clock.inc || S.clock.unlimited) return;
   const side = S.chess.turnColor() === WHITE ? 'b' : 'w';
   S.clock[side] += S.clock.inc;
@@ -575,6 +698,29 @@ function addIncrement() {
  * each player's time sat under the other player's name.
  */
 function paintClocks() {
+  // Online: the numbers are the server's, already discounted for the side to
+  // move, and interpolated by the online module between polls. Nothing here
+  // counts down on its own authority - a clock that ticks on the client's say-so
+  // is a clock a player can win by changing their system time.
+  if (online.isOnline()) {
+    const c = online.clockNow();
+    for (const isWhite of [true, false]) {
+      const onTop = S.flipped ? isWhite : !isWhite;
+      const el = $(onTop ? 'topClock' : 'botClock');
+      if (!el) continue;
+      if (!c.timed) {
+        el.textContent = '∞';
+        el.classList.remove('is-low');
+        continue;
+      }
+      const s = Math.ceil((isWhite ? c.white : c.black) / 1000);
+      el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      el.classList.toggle('is-low', s > 0 && s <= 30);
+    }
+    if (c.timed) requestAnimationFrame(paintClocks);   // smooth, from server data
+    return;
+  }
+
   for (const isWhite of [true, false]) {
     const onTop = S.flipped ? isWhite : !isWhite;
     const el = $(onTop ? 'topClock' : 'botClock');
@@ -602,12 +748,18 @@ function newGame(fen = '') {
   S.aiInfo = '';
   S.cursor = S.chess.turnColor() === WHITE ? 'e2' : 'e7';
   $('statEval').textContent = '—';
-  S.flipped = S.mode === 'ai' ? S.playerColor === BLACK : false;
+  // An online game is oriented by the seat the server gave us, not by whatever
+  // the mode select last said. Reloading into a game as black has to show black
+  // at the bottom or every click is mirrored.
+  S.flipped = online.isOnline()
+    ? online.myColor() === BLACK
+    : (S.mode === 'ai' ? S.playerColor === BLACK : false);
   // the flip has to be settled BEFORE the clocks paint, or each side's time is
   // written under the other side's name
   readTimeControl();
   render();
   paintBars();
+  if (online.isOnline()) { paintClocks(); return; }
   // warm the engine while the player is still looking at the board, so the WASM
   // compile is not paid for in the middle of their first move
   if (S.mode === 'ai') { ensureEngine(); if (S.chess.turnColor() !== S.playerColor) askEngine(); }
@@ -633,6 +785,12 @@ $('flipBtn').onclick = () => { S.flipped = !S.flipped; render(); paintBars(); pa
 
 $('resignBtn').onclick = () => {
   if (S.over) return;
+  if (online.isOnline()) {
+    // The server ends the game, not this function. Declaring a resignation
+    // locally is how a player ends up with a win screen they did not earn.
+    online.resign();
+    return;
+  }
   const loser = S.mode === 'ai' ? S.playerColor : S.chess.turnColor();
   finish(loser === WHITE ? -1 : 1, t(S.lang, 'resigned'));
 };
@@ -641,7 +799,14 @@ $('mode').onchange = (ev) => {
   S.mode = ev.target.value;
   $('levelField').hidden = S.mode !== 'ai';
   $('colorField').hidden = S.mode !== 'ai';
-  newGame();
+  // Switching to online with a local game running is a normal thing to do by
+  // accident, so the local game is left alone and the panel just takes over. The
+  // reverse - leaving online - goes through leaveOnline(), which is the only
+  // function that stops the polling.
+  if (S.mode !== 'online' && online.isOnline()) leaveOnline();
+  paintOnlinePanel();
+  paintAuth();
+  if (S.mode !== 'online') newGame();
 };
 
 // An unusable custom control must not silently start a game on the old clock:
@@ -718,6 +883,220 @@ $('langToggle').onclick = () => {
   paintBars();
 };
 
+// ── the account ─────────────────────────────────────────────────────────────
+
+/**
+ * Online needs an account; the local game does not. So the panel is only ever
+ * shown in online mode, and the boot check is allowed to fail silently - a
+ * database that is down must not stop somebody playing the computer.
+ */
+function paintAuth() {
+  const panel = $('authPanel');
+  if (!panel) return;
+  panel.hidden = S.mode !== 'online';
+  const u = online.user();
+  $('authForm').hidden = !!u;
+  $('authWho').hidden = !u;
+  $('authLogoutBtn').hidden = !u;
+  if (u) {
+    $('authWho').textContent = `${u.display_name || u.username} · ${u.rating ?? '—'}`;
+  }
+}
+
+function authMessage(key, fallback) {
+  $('authHint').textContent = key ? t(S.lang, key) : (fallback || '');
+}
+
+async function authSubmit(ev, isRegister) {
+  ev?.preventDefault();
+  const username = $('authName').value.trim();
+  const password = $('authPass').value;
+  const display = $('authDisplay').value.trim();
+  const remember = $('authRemember').checked;
+  // The server is the authority on usernames and passwords, but an empty box
+  // cannot be sent at all: a 400 for a field the player has not filled in yet is
+  // noise, and the browser already knows it is required.
+  if (!username || !password) { authMessage('authFillBoth'); return; }
+  $('authLoginBtn').disabled = $('authRegisterBtn').disabled = true;
+  try {
+    if (isRegister) {
+      await online.register(username, password, display, remember);
+      authMessage('');
+    } else {
+      await online.login(username, password, remember);
+      authMessage('');
+    }
+    $('authPass').value = '';
+    paintAuth();
+    paintOnlinePanel();
+  } catch (err) {
+    // Bad password and unknown user get the same message on purpose: telling
+    // them apart is a free account-enumeration oracle.
+    authMessage(err?.code === 'bad_credentials' || err?.code === 'wrong_password' ? 'authWrong' : 'authFailed');
+  } finally {
+    $('authLoginBtn').disabled = $('authRegisterBtn').disabled = false;
+  }
+}
+
+function wireAuth() {
+  $('authForm').onsubmit = (ev) => authSubmit(ev, false);
+  $('authRegisterBtn').onclick = (ev) => authSubmit(ev, true);
+  $('authLogoutBtn').onclick = async () => {
+    try { await online.logout(); }
+    finally { paintAuth(); paintOnlinePanel(); newGame(); }
+  };
+}
+
+// ── the online panel ────────────────────────────────────────────────────────
+/**
+ * Show the room code, who is in the game, and the two things a server game needs
+ * that a local one does not: a code worth copying, and somebody to wait for.
+ */
+function paintOnlinePanel() {
+  // The setup block is what you see BEFORE a game, and the panel is what you see
+  // during one. Putting the "new room" button inside the panel meant there was no
+  // way to open the first room: the button was hidden until the game it starts.
+  const setup = $('onlineSetup');
+  if (setup) setup.hidden = S.mode !== 'online' || online.isOnline();
+
+  const box = $('onlinePanel');
+  if (!box) return;
+  const g = online.game();
+  box.hidden = !g;
+  if (!g) return;
+
+  $('onlineCode').textContent = g.code || '—';
+  $('onlineStatus').textContent = {
+    waiting: t(S.lang, 'onlineWaiting'),
+    active: t(S.lang, 'onlinePlaying'),
+    ended: t(S.lang, 'onlineEnded'),
+  }[g.status] || g.status;
+
+  // Watching an empty room is a real state: somebody sent you the link before
+  // their friend had arrived. The way in is to take the seat, so that is the one
+  // thing offered - not "new game", which would be a different room entirely.
+  const canSit = g.status === 'waiting' && g.me === null;
+  const seat = $('onlineTakeSeat');
+  if (seat) seat.hidden = !canSit;
+  const offer = $('onlineOffer');
+  if (offer) offer.hidden = canSit;
+  $('onlineDraw').hidden = g.status !== 'active' || g.me === null;
+  $('onlineLeave').hidden = false;
+
+  // The link is what actually gets sent to an opponent, and it is the one piece
+  // of this feature that has to be right in both languages: a path, not a query
+  // string, so it survives being pasted into anything.
+  const link = `${location.origin}${location.pathname}#g=${g.code || ''}`;
+  $('onlineLink').value = link;
+
+  const mine = online.myUserId();
+  const opp = g.me === 'white' ? g.black : g.white;
+  $('onlineOpponent').textContent = opp
+    ? `${opp.display_name}${opp.online ? '' : ` (${t(S.lang, 'offline')})`}`
+    : t(S.lang, 'onlineNobody');
+
+  if (online.drawOfferedBy && online.drawOfferedBy !== mine) {
+    $('onlineDrawOffer').hidden = false;
+  } else {
+    $('onlineDrawOffer').hidden = true;
+  }
+}
+
+async function withBusy(fn) {
+  const btn = $('onlineJoinGo');
+  if (btn) btn.disabled = true;
+  try { await fn(); }
+  catch (err) { $('onlineHint').textContent = err?.message || String(err); }
+  finally { if (btn) btn.disabled = false; paintOnlinePanel(); }
+}
+
+function wireOnlinePanel() {
+  const go = $('onlineJoinGo');
+  if (go) {
+    go.onclick = () => withBusy(async () => {
+      const code = $('onlineCodeInput').value.trim().toUpperCase();
+      if (!code) { $('onlineHint').textContent = t(S.lang, 'onlineNeedCode'); return; }
+      await online.joinGame(code);
+      $('boardVeil').hidden = true;
+      newGame();
+    });
+  }
+  const create = $('onlineCreate');
+  if (create) {
+    create.onclick = () => withBusy(async () => {
+      const [b, i] = ($('timeControl').value || '600+0').split('+').map(Number);
+      const code = await online.createGame({
+        baseMs: (b || 0) * 1000,
+        incrementMs: (i || 0) * 1000,
+        open: true,
+      });
+      history.replaceState(null, '', `#g=${code}`);
+      $('boardVeil').hidden = true;
+      newGame();
+    });
+  }
+  const leave = $('onlineLeave');
+  if (leave) leave.onclick = () => { history.replaceState(null, '', location.pathname); leaveOnline(); };
+
+  const draw = $('onlineDraw');
+  if (draw) draw.onclick = () => withBusy(() => online.offerDraw());
+  const seat = $('onlineTakeSeat');
+  if (seat) {
+    seat.onclick = () => withBusy(async () => {
+      await online.joinGame(online.game().code);
+      $('boardVeil').hidden = true;
+      newGame();
+    });
+  }
+  const accept = $('onlineDrawYes');
+  if (accept) accept.onclick = () => withBusy(() => online.offerDraw());
+  const decline = $('onlineDrawNo');
+  if (decline) decline.onclick = () => withBusy(() => online.declineDraw());
+
+  const copyBtn = $('onlineCopy');
+  if (copyBtn) copyBtn.onclick = () => copy($('onlineLink').value, copyBtn);
+
+  const chatForm = $('chatForm');
+  if (chatForm) {
+    chatForm.onsubmit = (ev) => {
+      ev.preventDefault();
+      const input = $('chatInput');
+      const text = input.value;
+      input.value = '';
+      online.say(text);
+    };
+  }
+}
+
+/** Append messages as text nodes. Never innerHTML - see Chat::clean(). */
+function onChat(messages) {
+  const log = $('chatLog');
+  if (!log) return;
+  for (const m of messages) {
+    const row = document.createElement('div');
+    row.className = 'chat-row';
+    const who = document.createElement('span');
+    who.className = 'chat-who';
+    who.textContent = m.display_name || m.username;
+    const body = document.createElement('span');
+    body.className = 'chat-body';
+    body.textContent = m.body;
+    row.append(who, body);
+    log.append(row);
+  }
+  while (log.childElementCount > 200) log.firstElementChild.remove();
+  log.scrollTop = log.scrollHeight;
+}
+
+function onOnlineError(err) {
+  // Errors that are already a normal part of online life (a poll that timed out,
+  // a move the server had already seen) do not get a dialog. The ones that mean
+  // the player cannot play at all do.
+  if (err?.code === 'not_logged_in') { $('onlineHint').textContent = t(S.lang, 'needLogin'); return; }
+  if (err?.code === 'rate_limited') { $('onlineHint').textContent = t(S.lang, 'slowDown'); return; }
+  $('onlineHint').textContent = err?.message || t(S.lang, 'connectionProblem');
+}
+
 // ── boot ────────────────────────────────────────────────────────────────────
 const savedTheme = localStorage.getItem('chess.theme') || 'dark';
 document.documentElement.dataset.theme = savedTheme;
@@ -726,4 +1105,36 @@ applyLang(S.lang);
 buildBoard();
 $('levelField').hidden = S.mode !== 'ai';
 $('colorField').hidden = S.mode !== 'ai';
+
+online.attach({
+  onChange: onOnlineChange,
+  onFinish: onlineFinished,
+  onError: onOnlineError,
+  onChat,
+  onAccount: () => { paintAuth(); paintOnlinePanel(); },
+  user: null,
+});
+wireOnlinePanel();
+wireAuth();
 newGame();
+
+// Ask the server who we are, once. Deliberately not awaited before the board is
+// drawn: the local game has to be playable the instant the page loads, with or
+// without a database, and a slow login check must not hold up a board.
+online.loadSession().then(() => { paintAuth(); paintOnlinePanel(); });
+// A #g=CODE in the URL is an invitation. Landing on one opens it, and if this
+// browser is not logged in the panel says so instead of failing silently.
+const invited = new URLSearchParams(location.hash.replace(/^#/, '')).get('g');
+if (invited) {
+  $('onlineCodeInput').value = invited.toUpperCase();
+  withBusy(async () => {
+    // watching, not joining: taking the seat is a separate, deliberate click
+    await online.watch(invited.toUpperCase());
+    $('boardVeil').hidden = true;
+    newGame();
+  });
+}
+
+// Exposed for the smoke test: the online controller is stateful and there is no
+// way to test a clock you cannot read.
+window.__online = online;

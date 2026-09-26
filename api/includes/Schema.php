@@ -39,10 +39,15 @@ final class Schema
                     display_name  VARCHAR(32)  NOT NULL,
                     pass_hash     VARCHAR(255) NOT NULL,
                     rating        INT          NOT NULL DEFAULT 1500,
+                    games_played  INT UNSIGNED NOT NULL DEFAULT 0,
+                    wins          INT UNSIGNED NOT NULL DEFAULT 0,
+                    draws         INT UNSIGNED NOT NULL DEFAULT 0,
+                    losses        INT UNSIGNED NOT NULL DEFAULT 0,
                     created_ms    BIGINT       NOT NULL,
                     last_seen_ms  BIGINT       NOT NULL,
                     PRIMARY KEY (id),
                     UNIQUE KEY uq_username (username),
+                    KEY ix_rating (rating),
                     KEY ix_seen (last_seen_ms)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 

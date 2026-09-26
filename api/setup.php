@@ -62,7 +62,17 @@ try {
 }
 
 // -- already installed? ------------------------------------------------------
-$installed = (int)($pdo->query("SELECT value FROM app_meta WHERE name = 'installed' LIMIT 1")->fetchColumn() ?: 0);
+// "Is it installed?" is asked BEFORE the tables exist, because on a fresh server
+// they do not. SELECTing app_meta here used to be a fatal error on the very
+// first run - the only run that mattered - and the answer came back as a blank
+// 500 with a stack trace in the log. A missing table means "not installed yet",
+// which is the question actually being asked.
+$installed = 0;
+try {
+    $installed = (int)($pdo->query("SELECT value FROM app_meta WHERE name = 'installed' LIMIT 1")->fetchColumn() ?: 0);
+} catch (Throwable $e) {
+    $installed = 0;                       // no app_meta table yet: first run
+}
 if ($installed === 1) {
     echo json_encode([
         'ok' => true, 'already_installed' => true,
@@ -72,35 +82,38 @@ if ($installed === 1) {
 }
 
 $created = [];
-
 $schema = Schema::tables();
 
-$pdo->beginTransaction();
+// MySQL commits DDL implicitly: there is no transaction to roll back a CREATE
+// TABLE, and pretending otherwise is worse than not pretending, because the
+// error message below then promises a rollback that cannot happen.
+//
+// What actually makes this safe is two things, and only two:
+//   - every statement is CREATE TABLE IF NOT EXISTS, so a run that died on the
+//     fifth table is resumed by running it again, and the first four are no-ops;
+//   - installed=1 is written LAST, so "installed" always means "every table
+//     exists", never "some of them do".
 try {
     foreach ($schema as $name => $sql) {
         $pdo->exec($sql);
         $created[] = $name;
     }
-    // Mark it installed in the same transaction as the tables, so a failure
-    // halfway leaves installed=0 and the run can simply be repeated
     $st = $pdo->prepare(
-        "INSERT INTO app_meta (name, value, updated_ms) VALUES ('installed', '0', :now)
-         ON DUPLICATE KEY UPDATE value = value"
+        "INSERT INTO app_meta (name, value, updated_ms) VALUES ('installed', '1', :now)
+         ON DUPLICATE KEY UPDATE value = '1', updated_ms = VALUES(updated_ms)"
     );
     $st->execute(['now' => Db::nowMs()]);
-    $st = $pdo->prepare(
-        "UPDATE app_meta SET value = '1', updated_ms = :now WHERE name = 'installed'"
-    );
-    $st->execute(['now' => Db::nowMs()]);
-    $pdo->commit();
 } catch (Throwable $e) {
-    $pdo->rollBack();
-    error_log('chess setup failed: ' . $e->getMessage());
+    error_log('chess setup failed after creating: ' . implode(', ', $created) . ' :: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
-        'ok' => false, 'error' => 'schema_failed',
-        'message' => 'The schema could not be created, so nothing was changed. The server error log has the reason.',
-    ], JSON_UNESCAPED_UNICODE);
+        'ok'      => false,
+        'error'   => 'schema_failed',
+        'created' => $created,
+        'message' => 'The schema was not created completely, so SHATRANGI is NOT installed and installed=0. '
+                   . 'Tables already created are listed under "created" and are left in place - fix the cause in '
+                   . 'the server error log and run this again; the statements are IF NOT EXISTS, so a repeat is safe.',
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
 

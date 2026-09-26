@@ -382,9 +382,39 @@ final class GameState
 
         $clock = self::clock($game, $nowMs);
 
+        // Whose turn it is, as an answer, not something the client works out.
+        //
+        // The client needs this to decide whether a click is even legal, and the
+        // tempting cheap version - parse the FEN's side-to-move field - is a
+        // hand-rolled parser of somebody else's format in the one place a
+        // disagreement shows up as a game two players cannot play. The rules
+        // engine is the authority on whose turn it is, so it is what gets asked.
+        // One engine per state poll is cheap next to being wrong.
+        $turn = Chess::WHITE;
+        $engine = new Chess();
+        if ($engine->load((string)$game['fen'])) {
+            $turn = $engine->turnColor() === Chess::WHITE ? 'white' : 'black';
+        }
+
+        // result is from WHITE's point of view, which is the single easiest thing
+        // in this whole file to flip. The winner's own id is sent as well, so a
+        // client showing a loss screen cannot accidentally hand it to the person
+        // who won - which is exactly what result + "is it my colour" gets wrong
+        // the moment a player reloads mid-game.
+        $result = $game['result'] === null ? null : (int)$game['result'];
+
+        // On a flag fall the side that ran out of time is the one that lost, so it
+        // follows from the result. Sending it explicitly means the client never
+        // has to infer "whose clock was it" and get it backwards.
+        $flagged = null;
+        if ((string)($game['reason'] ?? '') === 'flag') {
+            $flagged = $result === 1 ? 'black' : 'white';
+        }
+
         return [
             'code'        => (string)$game['code'],
             'status'      => (string)$game['status'],
+            'turn'        => $turn,
             'white'       => $who($game['white_user'] ?? null),
             'black'       => $who($game['black_user'] ?? null),
             'fen'         => (string)$game['fen'],
@@ -395,8 +425,10 @@ final class GameState
                 'increment_ms' => (int)$game['tc_increment_ms'],
             ],
             'rated'       => (bool)$game['rated'],
-            'result'      => $game['result'],
+            'result'      => $result,
             'reason'      => $game['reason'],
+            'winner'      => $game['winner_user'] === null ? null : (int)$game['winner_user'],
+            'flagged'     => $flagged,
             'clock'       => $clock,
             'now_ms'      => $nowMs,      // so the client can interpolate, not guess
             'updated_at_ms' => (int)$game['updated_at_ms'],

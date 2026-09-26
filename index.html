@@ -103,6 +103,7 @@
         <select id="mode">
           <option value="ai" data-i18n="modeAi">ضد الحاسوب</option>
           <option value="duo" data-i18n="modeDuo">لاعبان على نفس الجهاز</option>
+          <option value="online" data-i18n="modeOnline">عبر الإنترنت</option>
         </select>
       </div>
 
@@ -162,6 +163,93 @@
         <button class="btn btn-danger" id="resignBtn" data-i18n="btnResign">استسلام</button>
       </div>
 
+      <!-- account: needed for online, and irrelevant to a game against the
+           computer, so it only appears in online mode -->
+      <section class="online" id="authPanel" hidden>
+        <p class="hint" id="authWho" hidden></p>
+
+        <form id="authForm" autocomplete="on">
+          <div class="field">
+            <label for="authName" data-i18n="authUser">اسم المستخدم</label>
+            <input id="authName" name="username" autocomplete="username" minlength="3" maxlength="24" dir="ltr" required>
+          </div>
+          <div class="field" id="authDisplayField">
+            <label for="authDisplay" data-i18n="authDisplay">الاسم الظاهر</label>
+            <input id="authDisplay" name="nickname" maxlength="32">
+          </div>
+          <div class="field">
+            <label for="authPass" data-i18n="authPass">كلمة المرور</label>
+            <input id="authPass" name="password" type="password" autocomplete="current-password" minlength="8" required>
+          </div>
+          <label class="check">
+            <input type="checkbox" id="authRemember"> <span data-i18n="authRemember">أبقني مسجّلًا</span>
+          </label>
+          <p class="hint" id="authHint"></p>
+          <div class="btn-row btn-row-2">
+            <button class="btn btn-primary" type="submit" id="authLoginBtn" data-i18n="btnLogin">دخول</button>
+            <button class="btn" type="button" id="authRegisterBtn" data-i18n="btnRegister">حساب جديد</button>
+          </div>
+        </form>
+
+        <button class="btn btn-ghost" id="authLogoutBtn" hidden data-i18n="btnLogout">خروج</button>
+      </section>
+
+      <!-- online: setup. This lives OUTSIDE #onlinePanel on purpose: the panel
+           only exists once you are already in a game, so a "new room" button
+           inside it means there is no way to open the first one. -->
+      <section class="online" id="onlineSetup" hidden>
+        <div class="field">
+          <label for="onlineCodeInput" data-i18n="onlineJoinLabel">انضم بكود</label>
+          <div class="inline-row">
+            <input id="onlineCodeInput" maxlength="6" spellcheck="false" autocapitalize="characters" dir="ltr"
+                   inputmode="latin" placeholder="ABC123">
+            <button class="btn" id="onlineJoinGo" data-i18n="btnJoin">انضم</button>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="onlineCreate" data-i18n="btnCreateRoom">غرفة جديدة</button>
+        <p class="hint" id="onlineHint"></p>
+      </section>
+
+      <!-- online: the game itself. Everything in here is a fact the server sent. -->
+      <section class="online" id="onlinePanel" hidden aria-label="online">
+        <div class="online-head">
+          <span class="online-label" data-i18n="onlineRoom">الغرفة</span>
+          <code class="online-code" id="onlineCode">—</code>
+          <span class="online-status" id="onlineStatus">—</span>
+        </div>
+
+        <p class="hint" id="onlineOpponent">—</p>
+
+        <div class="field" id="onlineOffer">
+          <label for="onlineLink" data-i18n="onlineLinkLabel">رابط الدعوة</label>
+          <div class="inline-row">
+            <input id="onlineLink" readonly dir="ltr">
+            <button class="btn btn-ghost" id="onlineCopy" data-i18n="btnCopy">نسخ</button>
+          </div>
+        </div>
+
+        <button class="btn" id="onlineTakeSeat" hidden data-i18n="btnTakeSeat">اجلس في هذه الغرفة</button>
+
+        <div class="chat" id="onlineChat">
+          <div class="chat-log" id="chatLog" role="log" aria-live="polite"></div>
+          <form class="inline-row" id="chatForm">
+            <input id="chatInput" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" placeholder="اكتب رسالة…">
+            <button class="btn btn-ghost" type="submit" data-i18n="btnSend">أرسل</button>
+          </form>
+        </div>
+
+        <p class="hint warn" id="onlineDrawOffer" hidden>
+          <span data-i18n="onlineDrawAsked">خصمك يطلب التعادل</span>
+          <button class="btn btn-ghost" id="onlineDrawYes" data-i18n="btnAccept">قبول</button>
+          <button class="btn btn-ghost" id="onlineDrawNo" data-i18n="btnDecline">رفض</button>
+        </p>
+
+        <div class="btn-row btn-row-2">
+          <button class="btn" id="onlineDraw" hidden data-i18n="btnOfferDraw">اعرض التعادل</button>
+          <button class="btn btn-ghost" id="onlineLeave" hidden data-i18n="btnLeave">خروج</button>
+        </div>
+      </section>
+
       <div class="stat-row" id="gameStats">
         <div class="stat"><span class="stat-k" data-i18n="statMoves">الحركات</span><span class="stat-v" id="statMoves">0</span></div>
         <div class="stat"><span class="stat-k" data-i18n="statEval">التقييم</span><span class="stat-v" id="statEval">—</span></div>
@@ -188,7 +276,7 @@
         <button class="btn" id="loadFen" data-i18n="btnLoadFen">تحميل</button>
         <button class="btn btn-ghost" id="clearFen" data-i18n="btnClearFen">مسح</button>
       </div>
-      <p class="note" data-i18n="noteSoon">الحسابات واللعب عبر الإنترنت في المرحلة التالية.</p>
+      <p class="note" data-i18n="noteSetup">تحميل موقف محفوظ، ومشاركة رابط اللعبة، وتثبيت النتيجة.</p>
     </div>
   </aside>
 </main>

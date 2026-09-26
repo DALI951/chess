@@ -459,3 +459,64 @@ input[type="range"]::-moz-range-thumb {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── online panel ──────────────────────────────────────────────────────────
+   The room code is the one thing in the whole online flow that has to be
+   readable at a glance from across a table, so it is the largest text in the
+   panel and letter-spaced: a code nobody can read out loud is a code nobody
+   joins with. */
+.online {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+.online-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.online-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-2);
+}
+.online-code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--fg);
+  /* a code is an LTR token even in an RTL paragraph, or the letters reorder */
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.online-status { font-size: 0.78rem; color: var(--fg-2); }
+.chat { display: grid; gap: 8px; }
+.chat-log {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 0.84rem;
+}
+.chat-row { display: flex; gap: 8px; align-items: baseline; }
+.chat-who { color: var(--red); font-weight: 600; flex: 0 0 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-body { color: var(--fg); overflow-wrap: anywhere; }
+/* A warning is the red accent, not a new colour. An amber here was the only
+   second hue family on the page, and the whole point of the palette is that
+   there is one: if something needs to shout, it shouts in the accent. */
+.hint.warn { color: var(--red); }
+#authPanel { border-top: 1px solid var(--line); }
+#authForm { display: grid; gap: 8px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: var(--fg-2); cursor: pointer; }
+.check input { accent-color: var(--red); }
+

@@ -39,6 +39,30 @@ function gamePlayers(array $game, ?int $nowMs = null): array
     return array_values(array_filter($ids, static fn($r) => $r !== null));
 }
 
+/**
+ * Stamp "which seat is the requester in" onto a public state.
+ *
+ * The client must not work this out for itself. A player who reloads mid-game
+ * has two player objects and no way to be certain which one is them, and
+ * guessing wrong means playing the opponent's pieces. The server knows, because
+ * the server has the session; so the server says, and 'me' is null for a
+ * spectator, which is a real answer rather than a default.
+ *
+ * @param  array<string,mixed> $state
+ * @param  array<string,mixed>|null $me
+ * @return array<string,mixed>
+ */
+function gameStampMe(array $state, ?array $me): array
+{
+    $uid = $me === null ? null : (int)$me['id'];
+    $state['me'] = null;
+    if ($uid !== null) {
+        if (($state['white'] ?? null) && (int)$state['white']['id'] === $uid) $state['me'] = 'white';
+        elseif (($state['black'] ?? null) && (int)$state['black']['id'] === $uid) $state['me'] = 'black';
+    }
+    return $state;
+}
+
 Http::endpoint(static function (): void {
     $action = Http::str('action', 20) ?: 'state';
     $me     = Auth::user();
@@ -63,11 +87,16 @@ Http::endpoint(static function (): void {
         // same question the next move would ask. Otherwise a player whose
         // opponent flagged keeps staring at a running clock until they happen to
         // try to move, and the game sits there ACTIVE forever.
+        //
+        // Both browsers discover the same timeout, so the write is conditional on
+        // the game still being ACTIVE: exactly one of them ends it, and exactly
+        // one settles the rating. The loser of that race is told the game is over
+        // and writes nothing.
         if ($game['status'] === GameState::ACTIVE) {
             $c = GameState::clock($game, $now);
             if ($c['white'] <= 0 || $c['black'] <= 0) {
-                $fresh = GameState::endByTimeout($game, $c['white'] <= 0 ? 'white' : 'black', $now);
-                GameRepo::save($fresh);
+                GameRepo::endByTimeoutIfActive($game, $c['white'] <= 0 ? 'white' : 'black', $now);
+                $fresh = GameRepo::byId((int)$game['id']) ?? $fresh;
                 $changed = true;
             } else {
                 $fresh['white_ms'] = $c['white'];
@@ -77,7 +106,7 @@ Http::endpoint(static function (): void {
         if (count($moves) !== $since) $changed = true;
 
         Http::done([
-            'game'            => GameState::publicState($fresh, gamePlayers($fresh, $now), $moves, $now),
+            'game'            => gameStampMe(GameState::publicState($fresh, gamePlayers($fresh, $now), $moves, $now), $me),
             'ply'             => count($moves),
             'draw_offered_by' => GameRepo::drawOfferedBy($game['id']),
             'changed'         => $changed,
@@ -122,10 +151,16 @@ Http::endpoint(static function (): void {
                 'fen'             => $fenIn !== '' ? gameSanitiseFen($fenIn) : Chess::START_FEN,
                 'now_ms'          => $now,
             ]);
-            $game['id'] = GameRepo::insert($game);
+            // insert() decides the code: on a collision it tries another one, and
+            // the code it settled on is the one in the row. Taking it from the
+            // return value is what stops a retry handing the player a code that
+            // belongs to somebody else's room.
+            $inserted = GameRepo::insert($game);
+            $game['id']   = $inserted['id'];
+            $game['code'] = $inserted['code'];
             GameRepo::expireStale($now);
             Http::done([
-                'game'   => GameState::publicState($game, gamePlayers($game, $now), [], $now),
+                'game'   => gameStampMe(GameState::publicState($game, gamePlayers($game, $now), [], $now), $me),
                 'code'   => $game['code'],
                 'now_ms' => $now,
             ]);
@@ -135,7 +170,7 @@ Http::endpoint(static function (): void {
             $game   = $loadGame();
             $seated = GameRepo::seat($game['id'], (int)$me['id'], $now);
             Http::done([
-                'game'   => GameState::publicState($seated['game'], gamePlayers($seated['game'], $now), GameRepo::sans($game['id']), $now),
+                'game'   => gameStampMe(GameState::publicState($seated['game'], gamePlayers($seated['game'], $now), GameRepo::sans($game['id']), $now), $me),
                 'error'  => $seated['error'],
                 'now_ms' => $now,
             ]);
@@ -150,7 +185,7 @@ Http::endpoint(static function (): void {
             ]);
             $after = $result['game'];
             Http::done([
-                'game'   => GameState::publicState($after, gamePlayers($after), GameRepo::sans($after['id']), $now),
+                'game'   => gameStampMe(GameState::publicState($after, gamePlayers($after), GameRepo::sans($after['id']), $now), $me),
                 'move'   => $result['move'],
                 'error'  => $result['error'],
                 'now_ms' => $now,
@@ -161,7 +196,7 @@ Http::endpoint(static function (): void {
             $game  = $loadGame();
             $after = GameRepo::resign($game['id'], (int)$me['id'])['game'];
             Http::done([
-                'game'   => GameState::publicState($after, gamePlayers($after), GameRepo::sans($after['id']), $now),
+                'game'   => gameStampMe(GameState::publicState($after, gamePlayers($after), GameRepo::sans($after['id']), $now), $me),
                 'now_ms' => $now,
             ]);
 
@@ -174,7 +209,7 @@ Http::endpoint(static function (): void {
             }
             $out = GameRepo::offerDraw($game['id'], (int)$me['id']);
             Http::done([
-                'game'            => GameState::publicState($out['game'], gamePlayers($out['game']), GameRepo::sans($game['id']), $now),
+                'game'            => gameStampMe(GameState::publicState($out['game'], gamePlayers($out['game']), GameRepo::sans($game['id']), $now), $me),
                 'error'           => $out['error'],
                 'draw_offered_by' => $out['error'] === 'offered' ? (int)$me['id'] : null,
                 'now_ms'          => $now,

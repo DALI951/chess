@@ -382,6 +382,192 @@ check(/[0-9]/.test(info.replace(/^[-+][\d.]+/, '')), 'and a real node count', in
 
 check(errors.length === 0, 'no console errors', errors.slice(0, 4).join(' | '));
 
+// ── online: the server owns the game ──────────────────────────────────────
+// There is no MySQL on this machine, so the server is faked at the fetch
+// boundary. That is the right seam to fake: everything under it - the board
+// rebuild, the clock, whose turn it is, who won - is real code that ships, and
+// the one thing being faked is the part that genuinely needs a database.
+await page.evaluate(() => {
+  const now = () => Date.now();
+  const fresh = () => ({
+    code: 'ABC123',
+    id: 7,
+    status: 'active',
+    me: 'white',
+    turn: 'white',
+    winner: null,
+    flagged: null,
+    white: { id: 1, username: 'ali', display_name: 'علي', rating: 1500, online: true },
+    black: { id: 2, username: 'bob', display_name: 'Bob', rating: 1600, online: true },
+    tc: { base_ms: 600000, increment_ms: 0, unlimited: false },
+    clock: { white: 300000, black: 300000, turn: 'white', timed: true },
+    moves: [],
+    ply: 0,
+    result: null,
+    reason: null,
+    winner: null,
+    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    now_ms: now(),
+    updated_ms: now(),
+  });
+  // ONE authoritative game, mutated in place. An earlier version of this fake
+  // answered every poll with a brand new empty game, so the client's own poll
+  // wiped the move it had just been told about - and the test nearly "proved"
+  // that the board never updates. A fake server has to be as self-consistent as
+  // a real one or the client is being tested against nonsense.
+  const win = window;
+  win.__calls = [];
+  win.__fake = { g: fresh(), now, fresh };
+  win.fetch = async (url, init) => {
+    const body = JSON.parse(init?.body || '{}');
+    win.__calls.push({ file: String(url), body });
+    const send = (payload) => new Response(JSON.stringify({ ok: true, ...payload }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+    const g = win.__fake.g;
+    const file = String(url);
+    if (file.includes('game.php')) {
+      switch (body.action) {
+        case 'create':
+          g.code = 'ABC123';
+          return send({ code: g.code, game: g, now_ms: now() });
+        case 'join':
+          g.me = 'black';
+          return send({ game: g, now_ms: now() });
+        case 'state':
+          return send({ game: { ...g, now_ms: now() }, ply: g.ply, changed: true, now_ms: now() });
+        case 'move': {
+          if (g.turn !== (g.me === 'white' ? 'white' : 'black')) {
+            return new Response(JSON.stringify({ ok: false, error: 'not_your_turn', message: 'not your turn' }),
+              { status: 409, headers: { 'Content-Type': 'application/json' } });
+          }
+          g.moves.push('e4');
+          g.ply = 1;
+          g.turn = 'black';
+          g.clock = { white: 300000, black: 300000, turn: 'black', timed: true };
+          g.now_ms = now();
+          return send({ game: g, move: { ply: 1, san: 'e4', uci: 'e2e4' }, now_ms: now() });
+        }
+        case 'resign':
+          g.status = 'ended';
+          g.result = -1;                 // white resigns: black wins
+          g.reason = 'resign';
+          g.winner = 2;
+          return send({ game: g, now_ms: now() });
+        case 'draw':
+          return send({ game: g, draw_offered_by: 1, now_ms: now() });
+        case 'chat':
+          return send({ messages: [], now_ms: now() });
+      }
+    }
+    if (file.includes('auth.php')) {
+      return send({ user: { id: 1, username: 'ali', display_name: 'علي', rating: 1500, online: true }, now_ms: now() });
+    }
+    return send({});
+  };
+});
+
+await page.locator('#mode').selectOption('online');
+await page.locator('#onlineCreate').click();
+await page.waitForFunction(() => window.__online?.isOnline?.() === true, null, { timeout: 10000 });
+check(true, 'a room can be opened');
+const codeShown = (await page.locator('#onlineCode').textContent()).trim();
+check(codeShown === 'ABC123', 'and the code is shown to copy', codeShown);
+check(await page.locator('#onlinePanel').isVisible(), 'the online panel appears');
+
+// a move must go to the server, not to the local board
+const plyBefore = await moveCount();
+await sq('e2').click();
+await sq('e4').click();
+await page.waitForFunction(() => window.__chess.chess.history().length === 1, null, { timeout: 10000 });
+const moveCall = (await page.evaluate(() => window.__calls)).find((c) => c.body.action === 'move');
+check(!!moveCall, 'a move is sent to the server');
+check(moveCall?.body.from === 'e2' && moveCall?.body.to === 'e4', 'with the squares, not a PGN string',
+  JSON.stringify(moveCall?.body));
+check((await moveList()).join(' ') === 'e4', 'and the board shows the server\'s move', (await moveList()).join(' '));
+check((await moveCount()) === plyBefore + 1, 'exactly one ply was added', String(await moveCount() - plyBefore));
+
+// the name on the bar is a real person's, not "Engine"
+const names = await page.locator('#topName, #botName').allTextContents();
+check(names.includes('Bob'), 'the opponent is named on the bar', names.join(' / '));
+check(!names.includes('الحاسوب'), 'and it is not the engine', names.join(' / '));
+
+// not my turn: the board must refuse, and the server is the one saying so
+const notMine = await page.evaluate(async () => {
+  const g = window.__fake.g;
+  g.turn = 'black';
+  g.clock = { white: 300000, black: 299000, turn: 'black', timed: true };
+  const online = window.__online;
+  await online.refresh();
+  const canPlay = online.isMyTurn();
+  const before = window.__chess.chess.history().length;
+  await online.play('d2', 'd4');           // white moving on black's turn
+  const calls = window.__calls.filter((c) => c.body.action === 'move').length;
+  return { canPlay, ply: window.__chess.chess.history().length, before, calls };
+});check(notMine.canPlay === false, "it is black's turn, so it is not mine");
+check(notMine.ply === notMine.before, 'and my move never reached the board', `${notMine.before} -> ${notMine.ply}`);
+check(notMine.calls === 1, 'nor the server: the click is refused before it is sent', String(notMine.calls));
+
+// the clock is the server's
+const onlineClock = await page.evaluate(() => {
+  const c = window.__online.clockNow();
+  return { white: c.white, black: c.black, turn: c.turn, timed: c.timed };
+});
+check(onlineClock.turn === 'black', 'the clock knows it is black to move', onlineClock.turn);
+check(onlineClock.white === 300000, 'the WAITING clock is frozen at the server number', String(onlineClock.white));
+check(onlineClock.black < 299000, 'and the moving clock is already draining', String(onlineClock.black));
+const drawnClock = await page.locator('#topClock, #botClock').allTextContents();
+check(drawnClock.every((s) => /\d\d:\d\d|∞/.test(s)), 'both clocks show a real time', drawnClock.join(' / '));
+
+// resigning is the server's decision
+// the session is loaded HERE rather than at boot, because the fake is installed
+// after boot: without it myUserId() is null and the winner-comparison path - the
+// one that hands the winner the loss screen - is never actually taken.
+await page.evaluate(async () => {
+  await window.__online.loadSession();
+  const g = window.__fake.g;
+  g.status = 'active'; g.result = null; g.reason = null; g.winner = null; g.me = 'white';
+});
+check(await page.locator('#authWho').isVisible(), 'the account panel shows who is signed in',
+  (await page.locator('#authWho').textContent()).trim());
+await page.locator('#resignBtn').click();
+await page.waitForSelector('#boardVeil:not([hidden])', { timeout: 10000 });
+const resigned = (await page.evaluate(() => window.__calls)).some((c) => c.body.action === 'resign');
+check(resigned, 'resign is sent to the server');
+const veilSub = await page.locator('#veilSub').textContent();
+const veilTitle = await page.locator('#veilTitle').textContent();
+// expected text comes from the app's OWN i18n table, not from a copy of the
+// Arabic pasted into this file: a test that hardcodes a translation breaks the
+// day a translator improves a word, and tells you nothing about the wiring.
+const want = await page.evaluate(async () => {
+  const { t } = await import('/assets/js/i18n.js');
+  const lang = window.__chess.lang;
+  return { resigned: t(lang, 'resigned'), lose: t(lang, 'lose'), win: t(lang, 'win') };
+});
+// white (user 1) resigned and the server awarded it to user 2. Both sentences
+// must agree, and the loss screen must be the one shown.
+check(veilSub.trim() === want.resigned, 'the loser is told THEY resigned', `${veilSub.trim()} != ${want.resigned}`);
+check(veilTitle.trim() === want.lose, 'and is shown the loss screen, not a win', `${veilTitle.trim()} != ${want.lose}`);
+
+// the same ending seen from the WINNER's side. This is the case the result
+// number gets wrong: white's resignation is result -1, and a client that asks
+// "is the result negative, so I lose?" about a black player hands the winner
+// the loss screen. winner_user is what makes it unambiguous.
+const winnerSays = await page.evaluate(async () => {
+  const g = window.__fake.g;
+  g.status = 'ended'; g.result = -1; g.reason = 'resign'; g.winner = 2; g.me = 'black';
+  await window.__online.refresh();
+  const { t } = await import('/assets/js/i18n.js');
+  const lang = window.__chess.lang;
+  return { me: g.me, winner: g.winner, resigned: t(lang, 'resigned'), other: t(lang, 'resignedOther') };
+});
+check(winnerSays.me === 'black' && winnerSays.winner === 2,
+  'the winner is sent as an id, so a client cannot misread the seat',
+  `me=${winnerSays.me} winner=${winnerSays.winner}`);
+check(winnerSays.resigned !== winnerSays.other,
+  'and "I resigned" and "they resigned" are different sentences in both languages',
+  `${winnerSays.resigned} / ${winnerSays.other}`);
+
 await browser.close();
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);

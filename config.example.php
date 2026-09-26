@@ -1,11 +1,31 @@
 <?php
 /**
- * Chess â€” example config.
+ * SHATRANGI - example config.
  *
  * Copy to config.local.php and fill in real values.
  * config.local.php is gitignored and MUST never be committed.
  * On the server it lives OUTSIDE the web root: ../config.local.php
  * (api/includes/bootstrap.php looks in both places).
+ *
+ * ---------------------------------------------------------------------------
+ * ONLY THE KEYS BELOW ARE READ BY THE CODE. This file used to document a
+ * `game` block, a `rate_limit` block, `site.timezone`, `session.cookie_name`,
+ * `session.lifetime` and `admins` - and not one of them was read. The rate
+ * limits are literals at the Http::throttle() call sites, the abandon window is
+ * GameRepo::STALE_MS, and the session cookie is a browser-session cookie
+ * (lifetime 0) with a hardcoded name. Config that looks real and does nothing
+ * is worse than no config: the next person edits it, sees no behaviour change,
+ * and concludes the setting is broken. So the dead keys are gone and the real
+ * knobs are listed at the bottom, with the file to edit for each.
+ *
+ * Every key here has a fallback in api/includes/Config.php, so an incomplete
+ * config.local.php is fine - except setup_token, which is deliberately NOT
+ * optional: no token means the installer refuses to run rather than skipping
+ * its check.
+ *
+ * Every key can also come from the environment instead, which is how the host
+ * is configured today (see the CHESS_* list in Config::load()).
+ * ---------------------------------------------------------------------------
  */
 
 return [
@@ -18,40 +38,39 @@ return [
         'charset' => 'utf8mb4',
     ],
 
-    // Site identity
     'site' => [
-        'name'       => 'shatrangi',
-        'origin'     => 'https://modali.powerpme.com/chess',  // used for cookie + CSRF checks
-        'timezone'   => 'Africa/Tunis',
+        'name'   => 'shatrangi',
+        // Compared against the Origin header on every state-changing request.
+        // Wrong or missing here means every write is rejected as cross-site.
+        'origin' => 'https://modali.powerpme.com/chess',
     ],
 
     'session' => [
-        'cookie_name' => 'chess_sid',
-        'lifetime'    => 60 * 60 * 24 * 30, // 30 days
-        'secure'      => true,              // false only for local http://127.0.0.1 testing
+        // true everywhere except local http://127.0.0.1 testing, where a secure
+        // cookie is never sent back and every login silently fails.
+        'secure' => true,
     ],
 
-    'game' => [
-        // A game with no move for this long is auto-resigned (7 days, per spec)
-        'abandon_after_days' => 7,
-        // Finished games older than this are deleted by the cleanup job (30 days)
-        'cleanup_after_days'  => 30,
-        // Poll interval hint the client uses (ms)
-        'poll_ms'             => 700,
-    ],
-
-    'rate_limit' => [
-        'signup_per_hour'   => 5,     // per IP
-        'games_per_minute'  => 12,    // per user
-        'chat_per_10s'      => 4,     // per user
-        'api_per_minute'    => 240,   // per user â€” polling needs headroom
-    ],
-
-    // One-shot installer guard. Change this, visit /api/setup.php?token=...,
-    // then DELETE api/setup.php from the server.
+    // One-shot installer guard. The installer reads this from the X-Setup-Token
+    // header and refuses GET, so it cannot be triggered by a link somebody sends
+    // you. .htaccess denies api/setup.php outright, so on a host that honours it
+    // you must lift that block (or comment it out) for the one request, then
+    // delete api/setup.php from the server.
+    //
+    //   curl -X POST https://your-host/api/setup.php -H "X-Setup-Token: <token>"
     'setup_token' => 'CHANGE_ME_RANDOM_STRING',
-
-    // Admin allowlist (usernames, lowercase). Only these can open /admin.
-    'admins' => ['dali951'],
 ];
 
+/*
+ * The settings that are NOT here, and where they actually live:
+ *
+ *   rate limits           one literal per action at each Http::throttle() call
+ *                         site: register 5/3h, login 10/5m, create 12/6m,
+ *                         join 20/10m, move 90/30m, resign 6/3m, draw 12/6m,
+ *                         chat 40/20m, leaderboard 60/30m (api\*.php)
+ *   abandoned games       GameRepo::STALE_MS
+ *   client poll interval  assets/js/online.js, not the server
+ *   session cookie name   hardcoded 'chess_sid' in Auth.php
+ *   session lifetime      0 (a browser-session cookie) in Http.php
+ *   admins                no admin area exists; delete this idea
+ */

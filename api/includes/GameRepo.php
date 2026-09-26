@@ -21,6 +21,9 @@ declare(strict_types=1);
  */
 final class GameRepo
 {
+    /** Elo K-factor. 32 is the classic value: ~16 games to settle a new player. */
+    private const K = 32;
+
     private const COLUMNS = 'id, code, status, white_user, black_user, fen, ply, sans, pgn,
                              tc_base_ms, tc_increment_ms, white_ms, black_ms,
                              turn_started_at_ms, turn_started_ms, result, reason,
@@ -76,15 +79,22 @@ final class GameRepo
 
     /**
      * @param  array<string,mixed> $game
-     * @return int the new game's id
+     * @return array{id:int,code:string} the id AND the code that was actually used
      */
-    public static function insert(array $game): int
+    public static function insert(array $game): array
     {
         // The code space is 23^6, about 148 million rooms, so a clash is rare -
         // and rare is not never. A collision used to be a 500 for the player who
         // hit it, on the one request that mattered. Five tries puts it far past
         // any birthday bound, and the give-up path is an honest error rather
         // than a crash.
+        //
+        // The code that ends up in the row is returned ALONGSIDE the id, because
+        // a retry may have replaced it. This function used to return only the id
+        // and set $game['code'] on its own local copy, which PHP does not hand
+        // back to the caller - so after a collision the caller still held the
+        // code that was ALREADY TAKEN, and cheerfully showed it to the player as
+        // the room to invite somebody into. A room they did not have.
         for ($attempt = 1; $attempt <= 5; $attempt++) {
             $code = $game['code'] !== '' && $attempt === 1 ? (string)$game['code'] : GameState::code();
             try {
@@ -115,8 +125,7 @@ final class GameRepo
                     );
                     return (int)Db::conn()->lastInsertId();
                 });
-                $game['code'] = $code;
-                return $id;
+                return ['id' => $id, 'code' => $code];
             } catch (PDOException $e) {
                 // 23000 is any integrity violation. uq_code is the only one this
                 // INSERT can hit that a retry could fix; a foreign key problem is
@@ -208,6 +217,10 @@ final class GameRepo
             $game = $result['game'];
             if ($result['error'] === 'flag') {
                 self::save($game);
+                // A flag fall is an ending like any other: the player who ran out
+                // of time loses, and their rating says so. It is easy to leave
+                // this one out because the move itself was never made.
+                self::settleRatings($game);
                 return $result;
             }
             if ($result['error'] === 'illegal_move') {
@@ -215,8 +228,122 @@ final class GameRepo
             }
             self::save($game);
             self::addMove($gameId, $game, $result['move']);
+            // A game that ended on this move (mate, stalemate, a fifty-move
+            // counter, a flag) settles the ratings HERE, inside the same
+            // transaction that wrote the result. Doing it in the endpoint instead
+            // would leave a result with no rating whenever the second write
+            // failed, and nobody would notice until a player wondered why their
+            // win did not count.
+            self::settleRatings($game);
             return $result;
         });
+    }
+
+    /**
+     * Move the two ratings, and the two records, once a game is over.
+     *
+     * Plain Elo, K=32, expected score from the two ratings. Deliberately not
+     * Glicko: a rating system that is subtly wrong is worse than a simple one,
+     * because the wrongness is invisible. This one is four lines you can check.
+     *
+     * @param array<string,mixed> $game a game row whose status is already ENDED
+     */
+    public static function settleRatings(array $game): void
+    {
+        $rated = !empty($game['rated']);
+        $white = (int)($game['white_user'] ?? 0);
+        $black = (int)($game['black_user'] ?? 0);
+        // Both seats must be real accounts. A game against a guest, or one that
+        // has not been given a black seat yet, is not rated - and half-applying
+        // a rating to the one player who has an account is worse than not rating.
+        if (!$rated || $white === 0 || $black === 0) {
+            return;
+        }
+        $result = $game['result'] === null ? null : (int)$game['result'];
+        if ($result === null) {
+            return;
+        }
+
+        $rows = Db::all(
+            'SELECT id, rating FROM users WHERE id IN (:w, :b)',
+            ['w' => $white, 'b' => $black]
+        );
+        $rating = [];
+        foreach ($rows as $r) {
+            $rating[(int)$r['id']] = (int)$r['rating'];
+        }
+        if (!isset($rating[$white], $rating[$black])) {
+            return;                     // an account was deleted mid-game
+        }
+
+        // score is from this seat's point of view. result is from WHITE's, which
+        // is the single most bug-prone number in this file: getting it wrong
+        // makes the loser climb the leaderboard.
+        $scoreWhite = $result === 1 ? 1.0 : ($result === 0 ? 0.5 : 0.0);
+        $scoreBlack = 1.0 - $scoreWhite;
+        $expectedWhite = 1.0 / (1.0 + 10 ** (($rating[$black] - $rating[$white]) / 400.0));
+        $expectedBlack = 1.0 - $expectedWhite;
+
+        $whiteGain = (int)round(self::K * ($scoreWhite - $expectedWhite));
+        $blackGain = (int)round(self::K * ($scoreBlack - $expectedBlack));
+
+        $upd = static function (int $userId, int $gain, string $outcome): void {
+            Db::run(
+                'UPDATE users
+                    SET rating = GREATEST(100, rating + :gain),
+                        games_played = games_played + 1,
+                        wins   = wins   + (CASE WHEN :o = \'w\' THEN 1 ELSE 0 END),
+                        draws  = draws  + (CASE WHEN :o = \'d\' THEN 1 ELSE 0 END),
+                        losses = losses + (CASE WHEN :o = \'l\' THEN 1 ELSE 0 END)
+                  WHERE id = :id',
+                ['gain' => $gain, 'o' => $outcome, 'id' => $userId]
+            );
+        };
+        // GREATEST(100, ...) is a floor, not a rule about the algorithm: Elo is
+        // unbounded downward and a beginner who keeps losing would otherwise
+        // grind to a rating that reads like a different person.
+        $upd($white, $whiteGain, $result === 1 ? 'w' : ($result === 0 ? 'd' : 'l'));
+        $upd($black, $blackGain, $result === -1 ? 'w' : ($result === 0 ? 'd' : 'l'));
+    }
+
+    /**
+     * End a game that ran out of time, but only if it is still going.
+     *
+     * A flag can fall between two requests, so every poll asks the clock the same
+     * question the next move would ask - which means BOTH players' browsers
+     * discover the same timeout, microseconds apart. Ending the game from the
+     * endpoint made that a double write, and settling ratings there made it a
+     * double rating: one game counted twice, one player's win worth 32 points.
+     *
+     * So the write is conditional on the row still being ACTIVE, and only the
+     * call whose UPDATE actually changed the row is the one that settles. The
+     * other one is told the game is over and changes nothing.
+     *
+     * @param  array<string,mixed> $game
+     * @return bool true if THIS call is the one that ended the game
+     */
+    public static function endByTimeoutIfActive(array $game, string $loserColor, int $now): bool
+    {
+        $fresh = GameState::endByTimeout($game, $loserColor, $now);
+        $st = Db::run(
+            'UPDATE games SET status = :status, result = :result, reason = :reason, winner_user = :winner,
+                              turn_started_at_ms = NULL, ended_at_ms = :ended, updated_ms = :ended
+              WHERE id = :id AND status = :active',
+            [
+                'status' => $fresh['status'],
+                'result' => $fresh['result'],
+                'reason' => $fresh['reason'],
+                'winner' => $fresh['winner_user'],
+                'ended'  => $now,
+                'id'     => (int)$game['id'],
+                'active' => GameState::ACTIVE,
+            ]
+        );
+        if ($st->rowCount() === 0) {
+            return false;               // somebody else got here first
+        }
+        self::settleRatings($fresh);
+        return true;
     }
 
     /**
@@ -235,6 +362,7 @@ final class GameRepo
             }
             $game = GameState::endByResign($game, $userId, $now);
             self::save($game);
+            self::settleRatings($game);
             return ['ok' => true, 'error' => null, 'game' => $game, 'move' => null];
         });
     }
@@ -255,6 +383,16 @@ final class GameRepo
             if ($game['status'] !== GameState::ACTIVE) {
                 throw new HttpError('already_over', 'This game is not playing.', 409);
             }
+            // Only somebody SITTING in this game may touch the draw. Moves and
+            // resignations both check this; the draw offer did not, so any logged-in
+            // account could walk up to a stranger's game, offer a draw, accept it
+            // themselves, and end it. The second press below treats "the other
+            // side" as whoever is not the offerer, so a non-player passing
+            // themselves off as the opponent ends the game without a second
+            // person ever agreeing to anything.
+            if ((int)($game['white_user'] ?? 0) !== $userId && (int)($game['black_user'] ?? 0) !== $userId) {
+                throw new HttpError('not_a_player', 'You are not playing in this game.', 403);
+            }
             $offered = self::drawOfferedBy($gameId);
             if ($offered === null) {
                 Db::run(
@@ -270,6 +408,7 @@ final class GameRepo
             Db::run('DELETE FROM game_draw_offers WHERE game_id = :g', ['g' => $gameId]);
             $game = GameState::endByAgreement($game, $now);
             self::save($game);
+            self::settleRatings($game);
             return ['ok' => true, 'error' => 'agreed', 'game' => $game];
         });
     }

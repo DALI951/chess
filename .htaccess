@@ -24,17 +24,17 @@ AddType application/wasm .wasm
 </IfModule>
 
 # --- default document --------------------------------------------------------
-DirectoryIndex index.php index.html
+# index.html, not index.php: there is no front controller in this project, and
+# listing one here first meant every request tried a file that does not exist
+# before falling through. Harmless, but it is a lie in the config.
+DirectoryIndex index.html
 
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-
-    # Front controller: anything that is not a real file goes to index.php, so
-    # /game/AB12CD works as a challenge link and stays shareable.
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^ index.php [QSA,L]
-</IfModule>
+# NOTE: there is deliberately NO rewrite of unknown paths to a front controller.
+# An earlier version had `RewriteRule ^ index.php [QSA,L]` with a comment about
+# /game/AB12CD challenge links - but there is no index.php, so every mistyped URL
+# became a 404 for a file that was never going to exist. Challenge links are a
+# URL FRAGMENT (#g=AB12CD) instead, which the browser keeps to itself and the
+# client reads on load. The server never sees it, so nothing needs to route it.
 
 # --- never serve the plumbing -------------------------------------------------
 # config.local.php holds the database password and lives only on this PC and on
@@ -44,9 +44,11 @@ DirectoryIndex index.php index.html
     Require all denied
 </FilesMatch>
 
-# The schema installer is reachable only with the right token (see api/install.php).
-# Denying it at the web server too means a bug in the token check is not the only
-# thing standing between the internet and a DROP TABLE.
-<Files "install.php">
+# The schema installer is token-guarded, and it is denied at the web server as
+# well, so a bug in the token check is not the only thing between the internet
+# and the schema. The name has to match the file: this used to say install.php,
+# which is not a file that exists, so the installer was reachable by anyone who
+# guessed the URL - the exact lock this block exists to provide.
+<FilesMatch "^(setup\.php)$">
     Require all denied
-</Files>
+</FilesMatch>

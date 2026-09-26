@@ -25,9 +25,13 @@ Http::endpoint(static function (): void {
         case 'leaderboard':
             // public, and the most-hit endpoint here by far
             Http::throttle('leaderboard', 60, 30);
+            // The tiebreak is the username, not a wins column that does not
+            // exist: this ORDER BY used to name wins_ms, and since there is no
+            // such column the whole leaderboard was a 500 - the most-visited
+            // page on the site, failing on every request.
             $top = Db::all(
                 'SELECT id, username, display_name, rating, last_seen_ms
-                   FROM users ORDER BY rating DESC, wins_ms ASC LIMIT 50'
+                   FROM users ORDER BY rating DESC, username ASC LIMIT 50'
             );
             Http::done([
                 'players' => array_map([Auth::class, 'publicUser'], $top),
@@ -37,15 +41,18 @@ Http::endpoint(static function (): void {
 
         case 'me':
             if ($me === null) throw new HttpError('not_logged_in', 'Log in first.', 401);
+            // The record comes from the users row, not from re-deriving it out of
+            // the games table every time somebody opens a page. It is written once
+            // when a game ends, in the same transaction as the result, so a record
+            // and a result can never disagree.
             Http::done([
                 'user'   => Auth::publicUser($me, $now),
-                'record' => Db::one(
-                    'SELECT COUNT(*) AS played, SUM(result = 1) AS wins, SUM(result = 0) AS draws,
-                            SUM(result = -1) AS losses
-                       FROM games
-                      WHERE status = \'ended\' AND (white_user = :u OR black_user = :u)',
-                    ['u' => (int)$me['id']]
-                ),
+                'record' => [
+                    'played' => (int)($me['games_played'] ?? 0),
+                    'wins'   => (int)($me['wins'] ?? 0),
+                    'draws'  => (int)($me['draws'] ?? 0),
+                    'losses' => (int)($me['losses'] ?? 0),
+                ],
                 'now_ms' => $now,
             ]);
 
