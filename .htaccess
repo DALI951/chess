@@ -1,0 +1,52 @@
+# SHATRANGI - Apache config for the chess app.
+#
+# The shared host runs ~25 projects out of one account, so everything here is
+# scoped to this directory. Nothing global, no rewrite into a parent.
+
+# --- Stockfish ---------------------------------------------------------------
+# The engine is WebAssembly. Without this the browser gets it as
+# application/octet-stream and WebAssembly.instantiateStreaming refuses to
+# compile it, which shows up as "the engine could not start" and nothing else.
+AddType application/wasm .wasm
+
+<IfModule mod_headers.c>
+    # 640KB of immutable engine: the only thing on this site worth caching hard.
+    <FilesMatch "\.(wasm|js)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # The app is same-origin only and loads no third-party anything. Saying so in
+    # a header means a future dependency cannot quietly widen this by accident.
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+</IfModule>
+
+# --- default document --------------------------------------------------------
+DirectoryIndex index.php index.html
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Front controller: anything that is not a real file goes to index.php, so
+    # /game/AB12CD works as a challenge link and stays shareable.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# --- never serve the plumbing -------------------------------------------------
+# config.local.php holds the database password and lives only on this PC and on
+# the server. If a stray .htaccess or a server misconfiguration ever exposes the
+# directory, these four lines are the difference between a leak and a 403.
+<FilesMatch "^(config\.local\.php|config\.example\.php|README\.md|STATUS\.md|package(-lock)?\.json)$">
+    Require all denied
+</FilesMatch>
+
+# The schema installer is reachable only with the right token (see api/install.php).
+# Denying it at the web server too means a bug in the token check is not the only
+# thing standing between the internet and a DROP TABLE.
+<Files "install.php">
+    Require all denied
+</Files>

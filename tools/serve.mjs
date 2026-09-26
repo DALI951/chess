@@ -33,7 +33,11 @@ if (!php) {
 }
 
 console.log(`chess dev server -> http://127.0.0.1:${PORT}/  (${php})`);
-const srv = spawn(php, ['-S', `127.0.0.1:${PORT}`, '-t', ROOT], {
+// tools/router.php is here only to give .wasm the right Content-Type; the built-in
+// server otherwise serves Stockfish's binary as application/octet-stream, which
+// WebAssembly.instantiateStreaming refuses. It returns false for every other path,
+// so nothing else changes behaviour.
+const srv = spawn(php, ['-S', `127.0.0.1:${PORT}`, '-t', ROOT, join(HERE, 'router.php')], {
   stdio: 'inherit',
   shell: php === 'php',
 });

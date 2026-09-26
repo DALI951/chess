@@ -97,6 +97,7 @@ const loadFen = async (fen) => {
   await tab('game');
 };
 const moveCount = () => page.locator('#moveList .m').count();
+const moveList = () => page.locator('#moveList .m').allTextContents();
 
 // -- click to move ------------------------------------------------------------
 await sq('e2').click();
@@ -143,10 +144,11 @@ const grid = () => page.$$eval('#board .sq', (els) =>
   els.map((e) => e.querySelector('.piece')?.dataset.piece || ''));
 
 const beforeFlip = await grid();
-check(beforeFlip.filter(Boolean).length === 32, 'the grid has 32 pieces before the flip');
+const beforeCount = beforeFlip.filter(Boolean).length;
 await page.locator('#flipBtn').click();
-check(await page.locator('#board .piece').count() === 32, 'the board survives a flip');
 const afterFlip = await grid();
+check(afterFlip.filter(Boolean).length === beforeCount, 'a flip neither adds nor removes a piece',
+  `${beforeCount} -> ${afterFlip.filter(Boolean).length}`);
 check(afterFlip.every((v, i) => v === beforeFlip[63 - i]),
   'after a flip every cell shows the piece that was on the opposite cell',
   afterFlip.map((v, i) => (v === beforeFlip[63 - i] ? null : `${i}:${v}!=${beforeFlip[63 - i]}`))
@@ -350,6 +352,33 @@ if (SHOTS) {
   await page.screenshot({ path: join(dir, 'phone-ar.png'), fullPage: true });
   console.log('  shots -> tools/shots/');
 }
+
+// -- the engine is strong enough to be worth playing --------------------------
+// "The engine replied with something legal" is the easy half. The half that
+// matters is whether a beginner-level engine still sees a mate in one, because
+// a strength setting that randomises between the top few moves produces exactly
+// the engine that hangs a mate. Black is the engine here (the player is white)
+// and the FEN is a mate in one for Black, so the engine has to find Ra1#.
+await page.locator('#mode').selectOption('ai');
+await page.locator('#level').evaluate((el) => {
+  el.value = '400';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+check((await page.locator('#levelOut').textContent()) === '400', 'the level slider goes down to 400');
+check(await page.locator('#levelField').isVisible(), 'and the level control is still there');
+await loadFen('r5k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1');
+await page.waitForSelector('#boardVeil:not([hidden])', { timeout: 25000 });
+check(/Ra1#/.test((await moveList()).join(' ')), 'even at level 400 the engine mates in one', (await moveList()).join(' '));
+const mate = await page.evaluate(async () =>
+  (await import('/assets/js/i18n.js')).t(window.__chess.lang, 'resultCheckmate'));
+check((await page.locator('#veilSub').textContent()) === mate, 'and the game ends as checkmate',
+  await page.locator('#veilSub').textContent());
+check((await moveCount()) === 1, 'the engine made that move, not the player', String(await moveCount()));
+
+// and a real engine reports its work, instead of a made-up node count
+const info = await page.locator('#statEval').textContent();
+check(/\d+p/.test(info), 'the eval readout shows a real search depth', info);
+check(/[0-9]/.test(info.replace(/^[-+][\d.]+/, '')), 'and a real node count', info);
 
 check(errors.length === 0, 'no console errors', errors.slice(0, 4).join(' | '));
 

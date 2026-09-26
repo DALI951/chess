@@ -25,5 +25,8 @@
   },
   "devDependencies": {
     "playwright-core": "^1.63.0"
+  },
+  "dependencies": {
+    "stockfish.js": "^10.0.2"
   }
 }

@@ -374,35 +374,63 @@ function askEngine() {
   paintBars();
   const elo = Number($('level').value) || 1200;
   const id = ++searchId;
-
-  if (!worker) {
-    worker = new Worker(new URL('./worker-ai.js', import.meta.url), { type: 'module' });
-    worker.onmessage = (e) => {
-      const { id: rid, move, score, nodes, depth } = e.data;
-      if (rid !== searchId) return;                 // a newer game superseded this search
-      S.thinking = false;
-      S.aiInfo = `${depth}p·${nodes.toLocaleString('en')}n`;
-      if (!move) { finish(0, t(S.lang, 'draw')); return; }
-      const povWhite = S.chess.turnColor() === WHITE;   // the score is from the mover's side
-      S.chess.move(move);
-      S.evalCp = povWhite ? score : -score;
-      paintEval();
-      blip('move');
-      afterMove();
-    };
-    worker.onerror = (ev) => {
-      S.thinking = false;
-      console.error('engine worker:', ev.message);
-      finish(0, 'engine error');
-    };
-  }
+  ensureEngine();
   worker.postMessage({ id, fen: S.chess.fen(), elo });
+}
+
+/**
+ * The engine worker is created on first use, but asked to warm up before it is
+ * needed: the WASM is ~640KB and compiling it costs a moment on a phone, and
+ * that cost should land while the player is still looking at the board rather
+ * than in the middle of their first move.
+ */
+function ensureEngine() {
+  if (worker) return;
+  worker = new Worker(new URL('./worker-ai.js', import.meta.url), { type: 'module' });
+  worker.onmessage = (e) => {
+    const { id: rid, type, move, score, cp, nodes, depth, moverIsWhite } = e.data;
+    if (rid !== searchId) return;                 // a newer game superseded this search
+
+    if (type === 'error') {
+      S.thinking = false;
+      console.error('engine:', e.data.message);
+      finish(0, t(S.lang, 'engineError'));
+      return;
+    }
+    // a score update from a search that is still running: this is what makes the
+    // eval bar move while it thinks instead of snapping in at the end
+    if (type === 'info') {
+      S.evalCp = moverIsWhite ? cp : -cp;
+      S.aiInfo = `${depth}p·${(nodes || 0).toLocaleString('en')}n`;
+      paintEval();
+      return;
+    }
+
+    S.thinking = false;
+    S.aiInfo = `${depth}p·${(nodes || 0).toLocaleString('en')}n`;
+    if (!move) { finish(0, t(S.lang, 'draw')); return; }
+    const povWhite = S.chess.turnColor() === WHITE;   // the score is from the mover's side
+    if (!S.chess.move(move)) { finish(0, t(S.lang, 'engineError')); return; }
+    S.evalCp = povWhite ? score : -score;
+    paintEval();
+    blip('move');
+    afterMove();
+  };
+  worker.onerror = (ev) => {
+    S.thinking = false;
+    console.error('engine worker:', ev.message);
+    finish(0, t(S.lang, 'engineError'));
+  };
+  worker.postMessage({ type: 'warm' });
 }
 
 function paintEval() {
   const el = $('statEval');
   if (S.evalCp == null) { el.textContent = '—'; return; }
-  const pawns = S.evalCp / 100;
+  // A forced mate arrives as a score far outside the centipawn scale. It is real
+  // information, but "-100.0" is not a number of pawns and reading it as one is
+  // just noise, so the bar pegs instead.
+  const pawns = Math.max(-99.9, Math.min(99.9, S.evalCp / 100));
   el.textContent = (pawns > 0 ? '+' : '') + pawns.toFixed(1) + (S.aiInfo ? ` · ${S.aiInfo}` : '');
 }
 
@@ -580,7 +608,9 @@ function newGame(fen = '') {
   readTimeControl();
   render();
   paintBars();
-  if (S.mode === 'ai' && S.chess.turnColor() !== S.playerColor) askEngine();
+  // warm the engine while the player is still looking at the board, so the WASM
+  // compile is not paid for in the middle of their first move
+  if (S.mode === 'ai') { ensureEngine(); if (S.chess.turnColor() !== S.playerColor) askEngine(); }
 }
 
 $('newGame').onclick = () => { $('boardVeil').hidden = true; newGame(); };
