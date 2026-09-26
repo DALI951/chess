@@ -1,0 +1,16 @@
+{
+  "name": "chess",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chess — play vs Stockfish and vs humans online. Arabic + English.",
+  "author": "DALI951",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"tests/js/*.test.mjs\"",
+    "test:deep": "node tools/deep-test.mjs \"tests/js/*.test.mjs\"",
+    "serve": "php -S 127.0.0.1:8080 -t .",
+    "perft": "node --test tests/js/perft.test.mjs",
+    "perft:divide": "node tools/perft-divide.mjs"
+  }
+}

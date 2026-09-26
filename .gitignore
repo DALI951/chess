@@ -1,0 +1,27 @@
+# secrets — NEVER commit (real file lives only on this PC and the server)
+config.local.php
+.env
+*.local.php
+
+# node
+node_modules/
+package-lock.json
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# test + tooling output
+test-results/
+playwright-report/
+out/
+*.log
+.phpunit.result.cache
+
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
