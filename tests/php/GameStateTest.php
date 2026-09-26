@@ -223,12 +223,27 @@ check(str_ends_with((string)($last['move']['uci'] ?? ''), 'q'),
 check((string)($last['move']['uci'] ?? '') === 'b7a8q', 'the whole UCI is b7a8q', (string)($last['move']['uci'] ?? ''));
 check(str_contains((string)$last['game']['fen'], 'Q'), 'the FEN now holds a white queen', (string)$last['game']['fen']);
 
-$seen = [];
-$dupes = 0;
-for ($i = 0; $i < 20000; $i++) { $c = GameState::code(); if (isset($seen[$c])) $dupes++; $seen[$c] = 1; }
-check($dupes === 0, '20000 codes had no collision', (string)$dupes);
-$bad = preg_match('/[01IOlSBZ258]/', implode('', array_keys($seen)));
-check($bad === 0, 'no code contains a confusable character', 'matched');
+// 20000 random codes, and the assertion is DELIBERATELY not "all different".
+// With 32^6 possible codes the birthday maths says about one collision in
+// 20000 draws is expected, not a bug - so a test demanding zero is a test that
+// fails once a month for no reason, and gets deleted. The property that actually
+// matters is that the space is huge and the alphabet is readable. The retry that
+// handles a real collision lives in GameRepo::insert().
+$codes = [];
+for ($i = 0; $i < 20000; $i++) $codes[] = GameState::code();
+$distinct = count(array_unique($codes));
+check($distinct >= 19990, "20000 codes: {$distinct} distinct, so collisions are vanishingly rare", (string)$distinct);
+check(strlen(GameState::CODE_ALPHABET) === 23, 'the alphabet is 23 characters', (string)strlen(GameState::CODE_ALPHABET));
+check(count(array_unique(str_split(GameState::CODE_ALPHABET))) === 23, 'with no repeats');
+// The alphabet is uppercase, which removes the whole l/1 and O/0 class of problem
+// from a code somebody is reading out loud: there is no case to get wrong.
+check(preg_match('/^[A-Z0-9]+$/', GameState::CODE_ALPHABET) === 1, 'uppercase and digits only');
+// every confusable PAIR must be absent entirely - keeping the digit but dropping
+// the letter, or the other way round, is the whole point
+$confusable = ['0', '1', '2', '5', '6', '8', 'I', 'L', 'O', 'S', 'Z', 'B', 'G'];
+$present = array_values(array_intersect(str_split(GameState::CODE_ALPHABET), $confusable));
+check($present === [], 'no confusable character survives (0 O 1 I L 2 Z 5 S 6 G 8 B)', implode('', $present));
+check(preg_match('/^[' . GameState::CODE_ALPHABET . ']{6}$/', GameState::code()) === 1, 'a code is six characters from it');
 check(strlen(GameState::code()) === 6, 'codes are six characters');
 
 // -- what the client is told -------------------------------------------------

@@ -1,0 +1,121 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * api/social.php - friends, ratings, and the leaderboard.
+ *
+ * Ratings are a single Elo number updated after a game ends, and nothing more.
+ * A full Glicko system with RDs, provisional scores and opponent-weighted
+ * pooling is a genuinely hard piece of mathematics, and a wrong one is worse than
+ * a simple one: it is the kind of wrong that looks reasonable and never gets
+ * noticed. So this is plain Elo, it is legible, and it is a separate function
+ * that can be replaced without touching anything else.
+ *
+ * @author DALI951
+ */
+
+require_once __DIR__ . '/includes/bootstrap.php';
+
+Http::endpoint(static function (): void {
+    $action = Http::str('action', 20) ?: 'leaderboard';
+    $me     = Auth::user();
+    $now    = Db::nowMs();
+
+    switch ($action) {
+        case 'leaderboard':
+            // public, and the most-hit endpoint here by far
+            Http::throttle('leaderboard', 60, 30);
+            $top = Db::all(
+                'SELECT id, username, display_name, rating, last_seen_ms
+                   FROM users ORDER BY rating DESC, wins_ms ASC LIMIT 50'
+            );
+            Http::done([
+                'players' => array_map([Auth::class, 'publicUser'], $top),
+                'total'   => (int)Db::value('SELECT COUNT(*) FROM users'),
+                'now_ms'  => $now,
+            ]);
+
+        case 'me':
+            if ($me === null) throw new HttpError('not_logged_in', 'Log in first.', 401);
+            Http::done([
+                'user'   => Auth::publicUser($me, $now),
+                'record' => Db::one(
+                    'SELECT COUNT(*) AS played, SUM(result = 1) AS wins, SUM(result = 0) AS draws,
+                            SUM(result = -1) AS losses
+                       FROM games
+                      WHERE status = \'ended\' AND (white_user = :u OR black_user = :u)',
+                    ['u' => (int)$me['id']]
+                ),
+                'now_ms' => $now,
+            ]);
+
+        case 'search':
+            if ($me === null) throw new HttpError('not_logged_in', 'Log in first.', 401);
+            Http::throttle('search', 30, 15);
+            $q = Http::str('q', 20);
+            if (mb_strlen($q) < 2) throw new HttpError('bad_query', 'Type at least two characters.', 422);
+            // The wildcard is the one thing that has to be escaped by hand, and
+            // it is escaped rather than removed: typing "a%b" should find nobody,
+            // not find everybody.
+            $rows = Db::all(
+                'SELECT id, username, display_name, rating, last_seen_ms
+                   FROM users
+                  WHERE username LIKE :q ESCAPE \'\\\'
+                    AND id <> :me
+                  ORDER BY rating DESC LIMIT 20',
+                ['q' => '%' . selfEscapeLike($q) . '%', 'me' => (int)$me['id']]
+            );
+            Http::done(['players' => array_map([Auth::class, 'publicUser'], $rows), 'now_ms' => $now]);
+
+        case 'friend':
+        case 'unfriend':
+            if ($me === null) throw new HttpError('not_logged_in', 'Log in first.', 401);
+            Http::throttle('friend', 30, 10);
+            $id = Http::int('user');
+            if ($id <= 0 || $id === (int)$me['id']) {
+                throw new HttpError('bad_user', 'Pick somebody else.', 422);
+            }
+            $exists = Db::value('SELECT 1 FROM users WHERE id = :id', ['id' => $id]);
+            if ($exists === null) throw new HttpError('no_such_user', 'No such player.', 404);
+
+            if ($action === 'friend') {
+                Db::run(
+                    'INSERT INTO friends (user_id, friend_id, created_ms) VALUES (:a, :b, :now)
+                     ON DUPLICATE KEY UPDATE created_ms = created_ms',
+                    ['a' => (int)$me['id'], 'b' => $id, 'now' => $now]
+                );
+            } else {
+                Db::run(
+                    'DELETE FROM friends WHERE (user_id = :a AND friend_id = :b) OR (user_id = :b AND friend_id = :a)',
+                    ['a' => (int)$me['id'], 'b' => $id]
+                );
+            }
+            Http::done(['friends' => socialFriends((int)$me['id'], $now), 'now_ms' => $now]);
+
+        case 'friends':
+            if ($me === null) throw new HttpError('not_logged_in', 'Log in first.', 401);
+            Http::throttle('friends', 60, 30);
+            Http::done(['friends' => socialFriends((int)$me['id'], $now), 'now_ms' => $now]);
+
+        default:
+            throw new HttpError('bad_action', 'Unknown action: ' . $action, 400);
+    }
+});
+
+/** @return array<int,array<string,mixed>> */
+function socialFriends(int $userId, int $now): array
+{
+    $rows = Db::all(
+        'SELECT u.id, u.username, u.display_name, u.rating, u.last_seen_ms
+           FROM friends f JOIN users u ON u.id = f.friend_id
+          WHERE f.user_id = :u
+          ORDER BY u.rating DESC LIMIT 200',
+        ['u' => $userId]
+    );
+    return array_map([Auth::class, 'publicUser'], $rows);
+}
+
+function selfEscapeLike(string $q): string
+{
+    return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q);
+}

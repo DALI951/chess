@@ -32,12 +32,17 @@ final class GameState
     public const UNLIMITED = 0;   // tc_base_ms of 0 means "do not run a clock"
 
     /**
-     * Room codes are read aloud, typed by hand and read off a shared screen, so
-     * the alphabet drops every character that is confusable with another:
-     * I/1, L/1, O/0, S/5, Z/2, B/8, G/6, Y/7. What is left cannot be misread
-     * twice in the same way, which matters more than the tiny loss of entropy.
+     * Room codes get read aloud, typed by hand, and squinted at on a shared
+     * screen, so the alphabet drops every character that can be mistaken for
+     * another: 0/O, 1/I, 1/L, 2/Z, 5/S, 6/G, 8/B. That leaves 19 letters and
+     * 4 digits.
+     *
+     * 23^6 is about 148 million rooms, which is more than this site will ever
+     * hold, and GameRepo::insert() retries on a clash anyway - so the confusable
+     * characters are a free saving. Being able to type a code wrongly is a much
+     * worse bug than a code that is slightly easier to guess.
      */
-    public const CODE_ALPHABET = 'ACDEFGHJKMNPQRTUVWXY34679';
+    public const CODE_ALPHABET = 'ACDEFHJKMNPQRTUVWXY3479';
 
     /**
      * A fresh game row. $side is 'white' | 'black' | null (random, decided by
