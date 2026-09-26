@@ -14,12 +14,16 @@
     "test:ui": "node tools/smoke.mjs",
     "test:ui:shots": "node tools/smoke.mjs --shots",
     "test:visual": "node tools/visual-check.mjs",
+    "test:art": "node tools/piece-preview.mjs",
     "test:all": "npm test && npm run test:php:quick",
-    "test:everything": "npm test && npm run test:php:quick && npm run test:ui && npm run test:visual",
+    "test:everything": "npm test && npm run test:php:quick && npm run test:art && npm run test:ui && npm run test:visual",
     "fixtures:check": "node tools/gen-move-fixtures.mjs --check",
     "fixtures:gen": "node tools/gen-move-fixtures.mjs",
     "serve:php": "node tools/serve.mjs",
     "perft": "node --test tests/js/perft.test.mjs",
     "perft:divide": "node tools/perft-divide.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
   }
 }

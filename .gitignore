@@ -5,7 +5,6 @@ config.local.php
 
 # node
 node_modules/
-package-lock.json
 
 # python
 __pycache__/

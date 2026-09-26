@@ -77,6 +77,11 @@ check((await page.locator('#board .sq').first().getAttribute('class')).includes(
 check((await page.locator('#board .sq').nth(7).getAttribute('class')).includes('sq-dark'), 'a1 is a dark square');
 check(await page.locator('#board .coord.file').first().textContent() === 'a', 'the file letters start at a');
 check(await page.locator('#board .coord.rank').first().textContent() === '1', 'the rank numbers end at 1');
+// real SVG art, not a Unicode character in a <text> node
+check(await page.locator('#board .piece path').count() === 32, 'all 32 pieces are drawn as SVG paths');
+check(await page.locator('#board .piece text').count() === 0, 'no piece is a font glyph any more');
+check((await page.locator('.brand-mark .mark-a').count()) === 1, 'the brand mark is drawn');
+check((await page.locator('#brandName').textContent()).length > 0, 'the wordmark is there');
 
 /** The DOM cell showing a square, when White is at the bottom. */
 const sq = (name) => {
@@ -129,16 +134,28 @@ const canMoveBlack = await sq('b8').evaluate((el) => {
 check(canMoveBlack === 0, 'a black piece cannot be picked up in AI mode');
 
 // -- flip and undo ------------------------------------------------------------
-// the engine answered c6, so c6 is the only black piece we can rely on
-const c6Before = await sq('c6').locator('.piece').count();
+// A flip is a 180-degree rotation of the GRID, so the exact invariant is: after
+// flipping, cell i must show whatever cell 63-i showed before. The old check
+// asserted "e4 is now empty", which is a guess about the position, and it broke
+// the moment the engine picked a different move. Position-dependent assertions
+// about an engine's choices are not tests.
+const grid = () => page.$$eval('#board .sq', (els) =>
+  els.map((e) => e.querySelector('.piece')?.dataset.piece || ''));
+
+const beforeFlip = await grid();
+check(beforeFlip.filter(Boolean).length === 32, 'the grid has 32 pieces before the flip');
 await page.locator('#flipBtn').click();
 check(await page.locator('#board .piece').count() === 32, 'the board survives a flip');
-check((await sq('e4').locator('.piece').count()) === 0, 'after flipping, e4 no longer shows a piece');
-check((await sq('c6').locator('.piece').count()) === c6Before, 'c6 keeps its piece on the same cell when flipped');
+const afterFlip = await grid();
+check(afterFlip.every((v, i) => v === beforeFlip[63 - i]),
+  'after a flip every cell shows the piece that was on the opposite cell',
+  afterFlip.map((v, i) => (v === beforeFlip[63 - i] ? null : `${i}:${v}!=${beforeFlip[63 - i]}`))
+    .filter(Boolean).slice(0, 3).join(' '));
 check(await page.locator('#board .coord.file').first().textContent() === 'h', 'a flip reverses the file letters');
 check(await page.locator('#board .coord.rank').first().textContent() === '8', 'and the rank numbers');
 await page.locator('#flipBtn').click();
-check((await sq('e4').locator('.piece').count()) === 1, 'flipping back restores the piece');
+const backFlipped = await grid();
+check(backFlipped.every((v, i) => v === beforeFlip[i]), 'flipping back restores every cell');
 check(await page.locator('#board .coord.file').first().textContent() === 'a', 'the coordinates come back');
 
 const before = await moveCount();
@@ -196,7 +213,7 @@ for (const theme of ['wood', 'contrast', 'dark']) {
 }
 await page.locator('#langToggle').click();
 check((await page.locator('html').getAttribute('dir')) === 'ltr', 'switching to English flips the page to LTR');
-check((await page.locator('#brandName').textContent()) === 'KERSAT', 'the wordmark switches to English');
+check((await page.locator('#brandName').textContent()) === 'SHATRANGI', 'the wordmark switches to English');
 check(await page.locator('#board .piece').count() === 3, 'switching language does not disturb the board');
 await page.locator('#langToggle').click();
 check((await page.locator('html').getAttribute('dir')) === 'rtl', 'and back to Arabic');
@@ -220,6 +237,95 @@ await sq('e4').click();
 await page.waitForTimeout(1600);
 const t1 = await page.locator('#botClock').textContent();
 check(t1 !== '03:00', 'the clock runs and the 2s increment is added', `${t0} -> ${t1}`);
+
+// -- no clock: "no clock" is not a clock of zero ------------------------------
+// Choosing untimed used to set both clocks to 0, so the very first tick drove a
+// side to 0 and ended the game instantly, reporting it as checkmate.
+await page.locator('#newGame').click();
+await page.locator('#timeControl').selectOption('0');
+check((await page.locator('#topClock').textContent()) === '∞', 'untimed shows an infinity sign, not 00:00');
+check((await page.locator('#botClock').textContent()) === '∞', 'on both clocks');
+await sq('e2').click();
+await sq('e4').click();
+await sq('e7').click();
+await sq('e5').click();
+await page.waitForTimeout(900);
+check((await moveCount()) === 2, 'an untimed game plays on', String(await moveCount()));
+check(!(await page.locator('#boardVeil').isVisible()), 'an untimed game does not end on its own');
+check((await page.locator('#topClock').textContent()) === '∞', 'and the clock stays unlimited');
+
+// -- custom time control ------------------------------------------------------
+await page.locator('#timeControl').selectOption('custom');
+check(await page.locator('#customTime').isVisible(), 'choosing Custom reveals minutes and increment');
+await page.locator('#tcMinutes').fill('1');
+await page.locator('#tcIncrement').fill('5');
+await page.locator('#tcApply').click();
+const custom0 = await page.locator('#topClock').textContent();
+check(/^01:0\d$/.test(custom0), 'a custom 1+5 starts at about a minute', custom0);
+check((await page.locator('#timeControl').inputValue()) === 'custom', 'the select stays on Custom');
+// an unusable custom control has to be refused, not silently played on the old clock
+await page.locator('#tcMinutes').fill('0');
+await page.locator('#tcApply').click();
+check((await page.locator('#tcHint').textContent()).trim().length > 0, 'a custom control with no minutes is refused');
+check((await page.locator('#topClock').textContent()) === custom0, 'and the running clock is left exactly as it was');
+await page.locator('#tcMinutes').fill('1');
+
+// -- running out of time ------------------------------------------------------
+// The reason has to name the flag. It used to report checkmate, which is a
+// different ending, and the Arabic string for checkmate was mistranslated too,
+// so the bug was invisible in English and doubly wrong in Arabic.
+await page.locator('#newGame').click();
+await sq('e2').click();
+await sq('e4').click();                       // black to move, so BLACK's clock runs
+await page.evaluate(() => { window.__chess.clock.b = 0.25; });
+const expectedFlag = await page.evaluate(async () =>
+  (await import('/assets/js/i18n.js')).t(window.__chess.lang, 'resultTimeBlack'));
+const mateReason = await page.evaluate(async () =>
+  (await import('/assets/js/i18n.js')).t(window.__chess.lang, 'resultCheckmate'));
+await page.waitForSelector('#boardVeil:not([hidden])', { timeout: 8000 });
+check((await page.locator('#veilSub').textContent()) === expectedFlag,
+  'running out of time says the clock ran out', await page.locator('#veilSub').textContent());
+check((await page.locator('#veilSub').textContent()) !== mateReason, 'and does not claim checkmate instead');
+
+// -- clocks follow the flip ----------------------------------------------------
+// A clock belongs to a COLOUR, and it is only correct if it sits under its own
+// player's name. paintClocks() used to hardcode white to the top clock, so after
+// a flip each player's time sat under the other player's name. The assertion is
+// deliberately "the name on that bar matches the time on that bar" and not
+// "the top clock says 05:00": a fixed expected number passes just as happily
+// against the old bug as against the fix, which is exactly what happened once.
+const setClocks = (w, b) => page.evaluate(([w, b]) => {
+  const s = window.__chess;
+  s.clock.running = false;                    // stop the tick so the values are exact
+  s.clock.w = w; s.clock.b = b;
+  document.getElementById('flipBtn').click(); // any repaint path
+  document.getElementById('flipBtn').click(); // and back to where we started
+}, [w, b]);
+
+const sideWords = await page.evaluate(async () => {
+  const m = await import('/assets/js/i18n.js');
+  return { white: m.t(window.__chess.lang, 'white'), black: m.t(window.__chess.lang, 'black') };
+});
+/** Is the TOP bar showing `expectWhite`'s name AND their time? */
+const topShows = async (expectWhite) => {
+  const st = await page.evaluate(() => ({
+    whiteOnTop: window.__chess.flipped,
+    name: document.getElementById('topName').textContent.trim(),
+    clock: document.getElementById('topClock').textContent.trim(),
+  }));
+  const want = expectWhite ? sideWords.white : sideWords.black;
+  const wantTime = expectWhite ? '05:00' : '01:40';
+  return st.whiteOnTop === expectWhite && st.name === want && st.clock === wantTime;
+};
+
+await page.locator('#newGame').click();
+await page.locator('#timeControl').selectOption('600');
+await setClocks(300, 100);
+check(await topShows(false), 'unflipped, the top bar is black and carries black time', await page.evaluate(() => document.getElementById('topClock').textContent));
+await page.locator('#flipBtn').click();
+check(await topShows(true), 'flipped, the top bar is white and carries white time', await page.evaluate(() => document.getElementById('topClock').textContent));
+await page.locator('#flipBtn').click();
+check(await topShows(false), 'flipping back puts black on top again');
 
 if (SHOTS) {
   const dir = join(HERE, 'shots');

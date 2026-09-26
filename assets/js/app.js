@@ -32,7 +32,7 @@ const S = {
   dragFrom: null,
   evalCp: null,
   aiInfo: '',
-  clock: { w: 600, b: 600, inc: 0, timer: null, running: false, last: 0 },
+  clock: { w: 600, b: 600, inc: 0, unlimited: false, raw: '600', timer: null, running: false, last: 0 },
 };
 
 let worker = null;
@@ -360,8 +360,9 @@ function afterMove() {
 
   if (c.isCheckmate()) return finish(c.turnColor() === WHITE ? -1 : 1, t(S.lang, 'resultCheckmate'));
   if (c.isStalemate()) return finish(0, t(S.lang, 'resultStalemate'));
-  if (c.isInsufficientMaterial()) return finish(0, t(S.lang, 'draw'));
-  if (c.isThreefoldRepetition() || c.isDrawByFiftyMoves()) return finish(0, t(S.lang, 'draw'));
+  if (c.isInsufficientMaterial()) return finish(0, t(S.lang, 'resultMaterial'));
+  if (c.isThreefoldRepetition()) return finish(0, t(S.lang, 'resultThreefold'));
+  if (c.isDrawByFiftyMoves()) return finish(0, t(S.lang, 'resultFifty'));
 
   if (!S.clock.running) startClock();
   if (S.mode === 'ai' && c.turnColor() !== S.playerColor) askEngine();
@@ -407,28 +408,34 @@ function paintEval() {
 
 function paintBars() {
   const turnIsWhite = S.chess.turnColor() === WHITE;
+  // The TOP bar shows whichever colour is at the top, which is black unless the
+  // board is flipped. This used to swap the two ELEMENT NAMES instead of the two
+  // colours, so on an ordinary unflipped board the top bar was labelled White
+  // while the white pieces sat at the bottom: your own name sat over your
+  // opponent's pieces. The is-turn glow was already colour-correct, which is
+  // why the two disagreed with each other.
   const topIsWhite = S.flipped;                     // the top row is rank 8 when unflipped
   const nameOf = (isWhite) => {
     if (S.mode === 'duo') return t(S.lang, isWhite ? 'white' : 'black');
     const mine = isWhite === (S.playerColor === WHITE);
     return mine ? t(S.lang, 'you') : t(S.lang, 'engine');
   };
-  const [top, bot] = topIsWhite ? ['top', 'bot'] : ['bot', 'top'];
-  $(top + 'Name').textContent = nameOf(topIsWhite);
-  $(bot + 'Name').textContent = nameOf(!topIsWhite);
-  $(top + 'Avatar').textContent = topIsWhite ? '♔' : '♚';
-  $(bot + 'Avatar').textContent = topIsWhite ? '♚' : '♔';
+  $('topName').textContent = nameOf(topIsWhite);
+  $('botName').textContent = nameOf(!topIsWhite);
+  // the avatar is real piece art, the same silhouettes the board draws
+  $('topAvatar').innerHTML = pieceMarkup(topIsWhite ? 'w' : 'b', 6);
+  $('botAvatar').innerHTML = pieceMarkup(topIsWhite ? 'b' : 'w', 6);
 
   // isWhite is a BOOLEAN and turnColor() returns 0/1: comparing them with ===
   // was always false, so the turn labels and the glow never appeared
   const sub = (isWhite) => (S.over ? '' : isWhite === turnIsWhite ? (S.thinking ? t(S.lang, 'thinking') : t(S.lang, 'yourTurn')) : '');
-  $(top + 'Sub').textContent = sub(topIsWhite);
-  $(bot + 'Sub').textContent = sub(!topIsWhite);
+  $('topSub').textContent = sub(topIsWhite);
+  $('botSub').textContent = sub(!topIsWhite);
   $('playerTop').classList.toggle('is-turn', !S.over && topIsWhite === turnIsWhite);
   $('playerBottom').classList.toggle('is-turn', !S.over && topIsWhite !== turnIsWhite);
 
-  paintCaptured(true, $(top + 'Captured'));
-  paintCaptured(false, $(bot + 'Captured'));
+  paintCaptured(topIsWhite, $('topCaptured'));
+  paintCaptured(!topIsWhite, $('botCaptured'));
 }
 
 /** What this side has taken, in the colour it was taken in. */
@@ -465,16 +472,46 @@ function finish(result, reason) {
 }
 
 // ── clocks ──────────────────────────────────────────────────────────────────
+/**
+ * Read the time control into S.clock. Returns false when the selection cannot be
+ * used (a custom control with no minutes), in which case the previous clock is
+ * left completely untouched and the caller shows the reason.
+ *
+ * `unlimited` exists because "no clock" is not a clock of zero: with w=b=0 the
+ * first tick subtracts a fraction, the value goes to 0 and the game ends
+ * instantly as if it were checkmate. Zero now means "do not run a clock".
+ */
 function readTimeControl() {
-  const [base, inc] = $('timeControl').value.split('+').map(Number);
+  const raw = $('timeControl').value;
+  $('customTime').hidden = raw !== 'custom';
+
+  let base = 0;
+  let inc = 0;
+  if (raw === 'custom') {
+    const mins = Number($('tcMinutes').value);
+    if (!Number.isFinite(mins) || mins < 1) {
+      $('tcHint').textContent = t(S.lang, 'customBad');
+      return false;
+    }
+    base = Math.round(mins) * 60;
+    inc = Math.max(0, Math.round(Number($('tcIncrement').value) || 0));
+  } else {
+    const [b, i] = raw.split('+').map(Number);
+    base = b || 0;
+    inc = i || 0;
+  }
+  $('tcHint').textContent = '';
+  S.clock.raw = raw;
+  S.clock.unlimited = base <= 0;
   S.clock.w = S.clock.b = base;
-  S.clock.inc = inc || 0;
+  S.clock.inc = S.clock.unlimited ? 0 : inc;
   S.clock.running = false;
   paintClocks();
+  return true;
 }
 
 function startClock() {
-  if (S.clock.running) return;
+  if (S.clock.running || S.clock.unlimited) return;
   S.clock.running = true;
   S.clock.last = Date.now();
   if (!S.clock.timer) {
@@ -486,24 +523,40 @@ function startClock() {
       const side = S.chess.turnColor() === WHITE ? 'w' : 'b';
       S.clock[side] = Math.max(0, S.clock[side] - dt);
       paintClocks();
-      if (S.clock[side] <= 0) finish(side === 'w' ? -1 : 1, t(S.lang, 'resultCheckmate'));
+      // the side that ran out of time LOSES, and the reason has to say so: this
+      // used to report checkmate, which is a different ending entirely
+      if (S.clock[side] <= 0) {
+        finish(side === 'w' ? -1 : 1, t(S.lang, side === 'w' ? 'resultTimeWhite' : 'resultTimeBlack'));
+      }
     }, 200);
   }
 }
 
 /** The increment belongs to the side that JUST moved, i.e. not the side to move. */
 function addIncrement() {
-  if (!S.clock.inc) return;
+  if (!S.clock.inc || S.clock.unlimited) return;
   const side = S.chess.turnColor() === WHITE ? 'b' : 'w';
   S.clock[side] += S.clock.inc;
   paintClocks();
 }
 
+/**
+ * Each clock belongs to a COLOUR, and a clock is only ever correct if it sits
+ * under its own player's name. Unflipped, WHITE is at the bottom; flipped, white
+ * is at the top. This used to hardcode white to the top clock, so after a flip
+ * each player's time sat under the other player's name.
+ */
 function paintClocks() {
-  for (const side of ['w', 'b']) {
-    const el = $(side === 'w' ? 'topClock' : 'botClock');
+  for (const isWhite of [true, false]) {
+    const onTop = S.flipped ? isWhite : !isWhite;
+    const el = $(onTop ? 'topClock' : 'botClock');
     if (!el) continue;
-    const s = Math.ceil(S.clock[side]);
+    if (S.clock.unlimited) {
+      el.textContent = '∞';
+      el.classList.remove('is-low');
+      continue;
+    }
+    const s = Math.ceil(S.clock[isWhite ? 'w' : 'b']);
     el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
     el.classList.toggle('is-low', s > 0 && s <= 30);
   }
@@ -521,8 +574,10 @@ function newGame(fen = '') {
   S.aiInfo = '';
   S.cursor = S.chess.turnColor() === WHITE ? 'e2' : 'e7';
   $('statEval').textContent = '—';
-  readTimeControl();
   S.flipped = S.mode === 'ai' ? S.playerColor === BLACK : false;
+  // the flip has to be settled BEFORE the clocks paint, or each side's time is
+  // written under the other side's name
+  readTimeControl();
   render();
   paintBars();
   if (S.mode === 'ai' && S.chess.turnColor() !== S.playerColor) askEngine();
@@ -544,7 +599,7 @@ $('undoBtn').onclick = () => {
   paintBars();
 };
 
-$('flipBtn').onclick = () => { S.flipped = !S.flipped; render(); paintBars(); };
+$('flipBtn').onclick = () => { S.flipped = !S.flipped; render(); paintBars(); paintClocks(); };
 
 $('resignBtn').onclick = () => {
   if (S.over) return;
@@ -559,7 +614,17 @@ $('mode').onchange = (ev) => {
   newGame();
 };
 
-$('timeControl').onchange = () => newGame();
+// An unusable custom control must not silently start a game on the old clock:
+// the select snaps back and the reason is shown under the inputs.
+$('timeControl').onchange = () => {
+  if (readTimeControl()) newGame();
+  else $('timeControl').value = S.clock.raw;
+};
+$('tcApply').onclick = () => {
+  if (!readTimeControl()) return;
+  $('timeControl').value = 'custom';
+  newGame();
+};
 $('level').oninput = (ev) => { $('levelOut').textContent = ev.target.value; };
 
 for (const btn of document.querySelectorAll('[data-color]')) {

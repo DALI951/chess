@@ -10,13 +10,17 @@ export const STRINGS = {
   ar: {
     dir: 'rtl',
     htmlLang: 'ar',
-    brand: 'كرسات',
-    docTitle: 'كرسات — شطرنج',
+    brand: 'شطرنجي',
+    docTitle: 'شطرنجي — الشطرنج عبر الإنترنت',
+    metaDesc: 'العب الشطرنج ضد الحاسوب أو ضد لاعبين حقيقيين. بالعربية والإنجليزية.',
     skipToBoard: 'تخطَّ إلى الرقعة',
     navPlay: 'العب', navPuzzles: 'ألغاز', navLeaderboard: 'المتصدرون',
     tabGame: 'اللعبة', tabMoves: 'الحركات', tabSetup: 'الإعدادات',
     lblMode: 'الوضع', modeAi: 'ضد الحاسوب', modeDuo: 'لاعبان على نفس الجهاز',
     lblTime: 'الوقت', lblLevel: 'مستوى الحاسوب', lblColor: 'ألوانك',
+    timeUnlimited: 'بدون وقت', timeCustom: 'مخصص…',
+    lblMinutes: 'الدقائق', lblIncrement: 'الزيادة (ثانية)',
+    btnApply: 'تطبيق', customBad: 'أدخل عددًا أكبر من صفر',
     colorWhite: 'أبيض', colorBlack: 'أسود', colorRandom: 'عشوائي',
     btnNewGame: 'لعبة جديدة', btnUndo: 'تراجع', btnFlip: 'قلب', btnResign: 'استسلام',
     btnCopyPgn: 'نسخ PGN', btnCopyFen: 'نسخ FEN',
@@ -28,8 +32,16 @@ export const STRINGS = {
     you: 'أنت', engine: 'الحاسوب', white: 'أبيض', black: 'أسود',
     thinking: 'يفكّر…', yourTurn: 'دورك', opponentTurn: 'دور الخصم',
     win: 'فزت', lose: 'خسرت', draw: 'تعادل',
-    resultCheckmate: 'خطأ الملك',
-    resultStalemate: ' stalemate', // replaced below
+    // result reasons. resultCheckmate used to be خطأ الملك ("the king's error"),
+    // which is not what checkmate means, and resultStalemate was an English
+    // leftover with a leading space: neither would have shipped.
+    resultCheckmate: 'كش ملك',
+    resultStalemate: 'لا توجد حركة قانونية',
+    resultTimeWhite: 'انتهى وقت الأبيض',
+    resultTimeBlack: 'انتهى وقت الأسود',
+    resultThreefold: 'تكرّر الموقف ثلاث مرات',
+    resultFifty: 'قاعدة الخمسين حركة',
+    resultMaterial: 'القطع لا تكفي للنهاية',
     promoTitle: 'اختر القطعة',
     resigned: 'استسلم',
     newGameTitle: 'لعبة جديدة',
@@ -42,13 +54,17 @@ export const STRINGS = {
   en: {
     dir: 'ltr',
     htmlLang: 'en',
-    brand: 'KERSAT',
-    docTitle: 'Kersat — Chess',
+    brand: 'SHATRANGI',
+    docTitle: 'Shatrangi — Play Chess Online',
+    metaDesc: 'Play chess against the engine or real people. Arabic and English.',
     skipToBoard: 'Skip to board',
     navPlay: 'Play', navPuzzles: 'Puzzles', navLeaderboard: 'Leaderboard',
     tabGame: 'Game', tabMoves: 'Moves', tabSetup: 'Settings',
     lblMode: 'Mode', modeAi: 'vs Computer', modeDuo: 'Two players',
     lblTime: 'Time', lblLevel: 'Engine level', lblColor: 'Your colour',
+    timeUnlimited: 'No clock', timeCustom: 'Custom…',
+    lblMinutes: 'Minutes', lblIncrement: 'Increment (sec)',
+    btnApply: 'Apply', customBad: 'Enter a number above zero',
     colorWhite: 'White', colorBlack: 'Black', colorRandom: 'Random',
     btnNewGame: 'New game', btnUndo: 'Undo', btnFlip: 'Flip', btnResign: 'Resign',
     btnCopyPgn: 'Copy PGN', btnCopyFen: 'Copy FEN',
@@ -60,7 +76,13 @@ export const STRINGS = {
     you: 'You', engine: 'Computer', white: 'White', black: 'Black',
     thinking: 'Thinking…', yourTurn: 'Your move', opponentTurn: 'Opponent to move',
     win: 'You win', lose: 'You lose', draw: 'Draw',
-    resultCheckmate: 'Checkmate', resultStalemate: 'Stalemate',
+    resultCheckmate: 'Checkmate',
+    resultStalemate: 'No legal moves',
+    resultTimeWhite: 'White ran out of time',
+    resultTimeBlack: 'Black ran out of time',
+    resultThreefold: 'Threefold repetition',
+    resultFifty: 'Fifty-move rule',
+    resultMaterial: 'Insufficient material',
     promoTitle: 'Promote to',
     resigned: 'Resigned',
     newGameTitle: 'New game',
@@ -84,6 +106,7 @@ export function applyLang(lang) {
   document.documentElement.lang = s.htmlLang;
   document.documentElement.dir = s.dir;
   document.title = s.docTitle;
+  document.querySelector('meta[name="description"]')?.setAttribute('content', s.metaDesc);
 
   for (const el of document.querySelectorAll('[data-i18n]')) {
     const key = el.dataset.i18n;

@@ -118,6 +118,11 @@ body {
   font-size: 24px; line-height: 1; color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, .45);
 }
+/* the eight-pointed star: a khatem crossed with a square. It has to survive
+   being 16px tall in a browser tab, so it is two solid shapes and nothing else */
+.brand-mark svg { width: 26px; height: 26px; display: block; }
+.brand-mark .mark-a { fill: #fff; }
+.brand-mark .mark-b { fill: none; stroke: #fff; stroke-width: 2.2; }
 .brand-name {
   font-size: 20px; font-weight: 700; letter-spacing: .01em;
   white-space: nowrap;
@@ -266,15 +271,19 @@ body {
 /* The rim on a piece is not decoration, it is legibility. A WHITE piece on a
    light square has no fill contrast to work with (1.12:1 on the high-contrast
    theme, 1.57:1 on wood), so every piece carries a stroke in the opposite
-   direction. This is how every real board does it. */
+   direction. This is how every real board does it.
+   3 units, not 1.5: the viewBox is 100 wide and a square is ~57px on a phone,
+   so 1.5 units lands at well under one device pixel and the rim disappears. */
 .piece.w {
   fill: var(--piece-w); stroke: var(--piece-w-stroke);
-  stroke-width: 1.5; paint-order: stroke fill;
+  stroke-width: 3; paint-order: stroke fill; stroke-linejoin: round;
 }
 .piece.b {
   fill: var(--piece-b); stroke: var(--piece-b-stroke);
-  stroke-width: 1.5; paint-order: stroke fill;
+  stroke-width: 3; paint-order: stroke fill; stroke-linejoin: round;
 }
+/* the player-bar avatar is a king in a 36px tile, so it needs its own size */
+.avatar .piece { width: 80%; height: 80%; }
 .piece text { font-family: "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols 2", "Segoe UI Emoji", serif; }
 .piece.drag {
   position: fixed; z-index: 60; pointer-events: none; width: 64px; height: 64px;
@@ -351,11 +360,20 @@ body {
 .field label, .label { font-size: 12px; color: var(--fg-3); font-weight: 650; display: flex; justify-content: space-between; }
 .field-value { color: var(--red); font-variant-numeric: tabular-nums; }
 
-select, textarea, input[type="text"] {
+select, textarea, input[type="text"], input[type="number"] {
   width: 100%; background: var(--panel-2); color: var(--fg);
   border: 1px solid var(--line); border-radius: var(--r-sm);
   padding: 11px 12px; font: inherit; font-size: 14px; min-height: var(--tap);
 }
+/* the custom time control: two numbers side by side, because "minutes" and
+   "increment" read as one setting and not as two separate ones */
+.custom-tc { padding: 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.custom-row { display: grid; grid-template-columns: 1fr 96px; align-items: center; gap: 10px; }
+.custom-row + .custom-row { margin-top: 9px; }
+.custom-row label { font-size: 12px; color: var(--fg-3); font-weight: 650; }
+.custom-row input { font-variant-numeric: tabular-nums; text-align: center; }
+.custom-tc .btn-row { margin-top: 11px; }
+.custom-tc .hint:empty { display: none; }
 select { cursor: pointer; }
 textarea { resize: vertical; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; }
 select:focus, textarea:focus, input:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }

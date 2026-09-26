@@ -1,6 +1,6 @@
 <?php
 /**
- * Chess — example config.
+ * Chess â€” example config.
  *
  * Copy to config.local.php and fill in real values.
  * config.local.php is gitignored and MUST never be committed.
@@ -20,7 +20,7 @@ return [
 
     // Site identity
     'site' => [
-        'name'       => 'kersat',
+        'name'       => 'shatrangi',
         'origin'     => 'https://modali.powerpme.com/chess',  // used for cookie + CSRF checks
         'timezone'   => 'Africa/Tunis',
     ],
@@ -44,7 +44,7 @@ return [
         'signup_per_hour'   => 5,     // per IP
         'games_per_minute'  => 12,    // per user
         'chat_per_10s'      => 4,     // per user
-        'api_per_minute'    => 240,   // per user — polling needs headroom
+        'api_per_minute'    => 240,   // per user â€” polling needs headroom
     ],
 
     // One-shot installer guard. Change this, visit /api/setup.php?token=...,
@@ -54,3 +54,4 @@ return [
     // Admin allowlist (usernames, lowercase). Only these can open /admin.
     'admins' => ['dali951'],
 ];
+

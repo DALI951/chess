@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>كرسات — شطرنج</title>
+<title>شطرنجي — الشطرنج عبر الإنترنت</title>
 <meta name="description" content="العب الشطرنج ضد الحاسوب أو ضد لاعبين حقيقيين. بالعربية والإنجليزية.">
 <meta name="theme-color" content="#0a0a0c">
 <link rel="stylesheet" href="assets/css/style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 1.5 21 11 30.5 16 21 21 16 30.5 11 21 1.5 16 11 11Z' fill='%23e11d2e'/%3E%3Cpath d='M7.4 7.4H24.6V24.6H7.4Z' fill='none' stroke='%23e11d2e' stroke-width='2.4'/%3E%3C/svg%3E">
 </head>
 <body>
 
@@ -15,8 +15,13 @@
 
 <header class="top">
   <div class="brand">
-    <span class="brand-mark" aria-hidden="true">♞</span>
-    <span class="brand-name" id="brandName">كرسات</span>
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32" focusable="false">
+        <path class="mark-a" d="M16 1.5 21 11 30.5 16 21 21 16 30.5 11 21 1.5 16 11 11Z"/>
+        <path class="mark-b" d="M7.4 7.4H24.6V24.6H7.4Z"/>
+      </svg>
+    </span>
+    <span class="brand-name" id="brandName">شطرنجي</span>
   </div>
 
   <nav class="nav" aria-label="main">
@@ -104,13 +109,29 @@
       <div class="field">
         <label for="timeControl" data-i18n="lblTime">الوقت</label>
         <select id="timeControl">
-          <option value="300">5 + 0</option>
           <option value="180+2">3 + 2</option>
+          <option value="300">5 + 0</option>
           <option value="600" selected>10 + 0</option>
           <option value="900+10">15 + 10</option>
           <option value="1800">30 + 0</option>
-          <option value="0">بدون وقت</option>
+          <option value="custom" data-i18n="timeCustom">مخصص…</option>
+          <option value="0" data-i18n="timeUnlimited">بدون وقت</option>
         </select>
+      </div>
+
+      <div class="field custom-tc" id="customTime" hidden>
+        <div class="custom-row">
+          <label for="tcMinutes" data-i18n="lblMinutes">الدقائق</label>
+          <input type="number" id="tcMinutes" min="0" max="240" step="1" value="10" inputmode="numeric">
+        </div>
+        <div class="custom-row">
+          <label for="tcIncrement" data-i18n="lblIncrement">الزيادة (ثانية)</label>
+          <input type="number" id="tcIncrement" min="0" max="180" step="1" value="0" inputmode="numeric">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="tcApply" data-i18n="btnApply">تطبيق</button>
+        </div>
+        <p class="hint" id="tcHint"></p>
       </div>
 
       <div class="field" id="levelField">
