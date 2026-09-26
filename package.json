@@ -9,7 +9,16 @@
   "scripts": {
     "test": "node --test \"tests/js/*.test.mjs\"",
     "test:deep": "node tools/deep-test.mjs \"tests/js/*.test.mjs\"",
-    "serve": "php -S 127.0.0.1:8080 -t .",
+    "test:php": "node tools/run-php.mjs",
+    "test:php:quick": "node tools/run-php.mjs --quick",
+    "test:ui": "node tools/smoke.mjs",
+    "test:ui:shots": "node tools/smoke.mjs --shots",
+    "test:visual": "node tools/visual-check.mjs",
+    "test:all": "npm test && npm run test:php:quick",
+    "test:everything": "npm test && npm run test:php:quick && npm run test:ui && npm run test:visual",
+    "fixtures:check": "node tools/gen-move-fixtures.mjs --check",
+    "fixtures:gen": "node tools/gen-move-fixtures.mjs",
+    "serve:php": "node tools/serve.mjs",
     "perft": "node --test tests/js/perft.test.mjs",
     "perft:divide": "node tools/perft-divide.mjs"
   }

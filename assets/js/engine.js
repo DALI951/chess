@@ -575,11 +575,21 @@ export class Chess {
     return decorated;
   }
 
-  /** Play a move given in SAN ("e4", "Nf3", "exd5", "O-O", "e8=Q+"). */
+  /**
+   * Play a move given in SAN ("e4", "Nf3", "exd5", "O-O", "e8=Q+").
+   *
+   * The check/mate suffix is OPTIONAL on input: real PGN files in the wild
+   * write "Qh4" where the rules say "Qh4#", so a strict comparison would refuse
+   * to import perfectly good games.
+   */
   moveSan(san) {
-    const target = String(san).trim();
+    const raw = String(san).trim();
+    const bare = raw.replace(/[+#]+$/, '');
     for (const mv of this._legalMoves()) {
-      if (this._san(mv) === target) return this.move({ from: mv.from, to: mv.to, promotion: pieceTypeToLetter(mv.promotion) });
+      const full = this._san(mv);
+      if (full === raw || full.replace(/[+#]+$/, '') === bare) {
+        return this.move({ from: mv.from, to: mv.to, promotion: pieceTypeToLetter(mv.promotion) });
+      }
     }
     return null;
   }
@@ -590,16 +600,25 @@ export class Chess {
     return this._withSan(mv);
   }
 
+  /**
+   * The moves of the game, oldest first. NON-DESTRUCTIVE: the position is
+   * restored before returning, so the UI can render the move list at any time
+   * without corrupting the live game.
+   */
   history(opts = {}) {
     const verbose = opts.verbose !== false;
-    const undoCopy = this._undo;
-    this._undo = false;
+    const moves = [];
+    while (this._history.length) moves.unshift(this._unmake());
+
     const out = [];
-    while (this._history.length) {
-      const mv = this._unmake();
-      out.unshift(verbose ? this._withSan(mv) : mv.san || this._san(mv));
+    for (const mv of moves) {
+      // san() must see the position in which the move is legal, so compute the
+      // entry BEFORE playing the move.
+      const entry = verbose ? this._withSan(mv) : { san: this._san(mv) };
+      this._make(mv);
+      if (verbose) entry.after = this.fen();
+      out.push(entry);
     }
-    this._undo = undoCopy;
     return out;
   }
 
@@ -635,12 +654,19 @@ export class Chess {
       const capture = mv.captured !== EMPTY || mv.flag === FLAG_EP_CAPTURE;
 
       if (type === PAWN) {
-        if (capture) san += 'abcdefgh'[fileOf(mv.from)] + 'x';
+        // Pawn SAN carries the ORIGIN FILE only; the shared capture 'x' below
+        // adds the single separator. Adding the 'x' here too produced "exxd5".
+        if (capture) san += 'abcdefgh'[fileOf(mv.from)];
       } else {
         san += PIECE_LETTERS_UPPER[type];
-        // disambiguation against other legal moves of the same piece type
+        // Disambiguation against other legal moves of the same piece type.
+        // The current move must be excluded by IDENTITY OF THE MOVE (from/to/
+        // promotion), NOT by object reference: this _legalMoves() call builds
+        // fresh objects, so `m !== mv` is always true and every move ends up
+        // disambiguating against itself (Nf3 -> Ng1f3).
+        const isSelf = (m) => m.from === mv.from && m.to === mv.to && m.promotion === mv.promotion;
         const rivals = this._legalMoves().filter((m) =>
-          m !== mv &&
+          !isSelf(m) &&
           typeOf(m.piece) === type &&
           m.to === mv.to &&
           colorOf(m.piece) === mv.color
@@ -803,18 +829,26 @@ export class Chess {
 
   pgn(opts = {}) {
     const maxWidth = opts.maxWidth || 0;
-    this.header('Result', this._pgnResult());
-    this.header('FEN', this.fen());
 
-    const undoCopy = this._undo;
-    this._undo = false;
+    // The result describes the FINAL position, so read it before rewinding.
+    const result = this._pgnResult();
 
+    // Rewind to the position the movetext starts from. The FEN tag is only
+    // written when that is NOT the standard start: including it always made our
+    // own export impossible to re-import, because loadPgn() would load the final
+    // position and then try to replay the whole game on top of it.
     const moves = [];
     while (this._history.length) moves.unshift(this._unmake());
+    const startFen = this.fen();
+    if (startFen !== START_FEN) this.setHeader('FEN', startFen);
+    else delete this._headers.FEN;
+    this.setHeader('Result', result);
 
-    this._undo = undoCopy;
-    for (const mv of moves) this._make(mv);
-
+    // Step forward one move at a time: _san() MUST see the position in which the
+    // move is legal, so compute it BEFORE playing the move. Re-making the whole
+    // game first and then walking the list makes _san() apply each move on top
+    // of the finished position — which both prints wrong SAN and leaves the
+    // board scrambled. (Found by the PHP mirror's parity test.)
     let body = '';
     let line = '';
     moves.forEach((mv, i) => {
@@ -825,6 +859,7 @@ export class Chess {
         line = '';
       }
       line += (line ? ' ' : '') + token;
+      this._make(mv);
     });
     if (line) body += line;
 
@@ -860,7 +895,10 @@ export class Chess {
       .replace(/;[^\n]*/g, ' ')
       .replace(/\$\d+/g, ' ')
       .replace(/\([^()]*\)/g, ' ')
-      .replace(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, ' ');
+      // The result markers: note there is NO \b around "*" — a word boundary
+      // needs a word character on one side, and " *" has none, so /\b\*\b/ never
+      // matched and importing any UNFINISHED game (result "*") threw.
+      .replace(/(\b1-0\b|\b0-1\b|\b1\/2-1\/2\b|\*)/g, ' ');
 
     const tokens = body.split(/\s+/).filter((t) => t.length && !/^\d+\.+$/.test(t) && !/^\d+\.{0,3}$/.test(t));
     for (let t = 0; t < tokens.length; t++) {

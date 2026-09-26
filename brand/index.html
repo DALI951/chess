@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brand check — KERSAT / SHATRANGI / DUBES</title>
+<style>
+  /* Dark cinema. One red. Nothing else gets a colour. */
+  :root {
+    --bg: #0a0a0f;
+    --panel: #111118;
+    --panel-2: #17171f;
+    --line: rgba(255, 255, 255, .08);
+    --line-2: rgba(255, 255, 255, .14);
+    --fg: #f4f4f6;
+    --fg-2: #9ca3af;
+    --fg-3: #6b7280;
+    --red: #dc2626;
+    --red-hi: #b91c1c;
+    --red-glow: rgba(239, 68, 68, .15);
+    --r: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 64px;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { max-width: 1120px; margin: 0 auto 28px; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.02em; }
+  header p { margin: 0; color: var(--fg-2); font-size: 14px; max-width: 62ch; }
+  .rule { height: 1px; background: var(--line); margin: 28px 0; border: 0; }
+
+  .grid { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r); overflow: hidden;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  }
+  .card:hover { transform: translateY(-2px); border-color: var(--line-2); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+  .card.pick { border-color: rgba(220, 38, 38, .5); box-shadow: 0 0 0 1px var(--red-glow), 0 12px 32px rgba(0, 0, 0, .5); }
+
+  .pad { padding: 20px; }
+  .name { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .name b { font-size: 20px; letter-spacing: .01em; }
+  .name span { font-size: 17px; color: var(--fg-2); }
+  .tag { color: var(--fg-2); font-size: 13px; margin: 6px 0 0; }
+  .badge {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    background: var(--red); color: #fff; border-radius: 999px; padding: 3px 9px;
+  }
+
+  /* the icon, shown at every size it will ever be used at */
+  .sizes { display: flex; align-items: flex-end; gap: 20px; margin: 18px 0 4px; }
+  .sizes figure { margin: 0; text-align: center; }
+  .sizes figcaption { color: var(--fg-3); font-size: 10px; margin-top: 6px; letter-spacing: .04em; }
+  .mark { display: block; }
+
+  /* the wordmark */
+  .wm { padding: 16px 0 4px; border-top: 1px solid var(--line); margin-top: 18px; }
+  .wm .en { font-size: 26px; font-weight: 800; letter-spacing: .14em; }
+  .wm .ar { font-size: 22px; font-weight: 700; letter-spacing: 0; margin-top: 2px; }
+  .wm .sl { color: var(--fg-3); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+
+  /* how the header looks inside the app */
+  .appbar {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 12px 14px; margin-top: 16px;
+  }
+  .appbar .nm { font-weight: 700; font-size: 15px; }
+  .appbar .sub { color: var(--fg-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  .appbar .sp { flex: 1; }
+  .btn { background: var(--red); color: #fff; border: 0; border-radius: 999px; padding: 7px 15px; font: inherit; font-size: 12px; font-weight: 700; }
+  .btn.ghost { background: #1f2937; color: #d1d5db; }
+
+  /* verdicts */
+  dl { margin: 16px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; }
+  dt { color: var(--fg-3); white-space: nowrap; }
+  dd { margin: 0; color: var(--fg-2); }
+  dd .no { color: #fca5a5; }   /* a red TINT, same hue: still one accent */
+
+  footer { max-width: 1120px; margin: 32px auto 0; color: var(--fg-2); font-size: 14px; }
+  footer b { color: var(--fg); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pick the name</h1>
+  <p>Three marks, same rules: dark cinema, one red, legible at 16&nbsp;px, Arabic and English side by side. My honest pick is at the bottom — read all three first.</p>
+</header>
+<hr class="rule">
+
+<div class="grid">
+
+  <!-- ── KERSAT ─────────────────────────────────────────────── -->
+  <section class="card">
+    <div class="pad">
+      <div class="name"><b>KERSAT</b><span lang="ar" dir="rtl">كُرسات</span></div>
+      <p class="tag">Arabic for &ldquo;lessons&rdquo;. The app that teaches you, not just the app that lets you play.</p>
+
+      <div class="sizes">
+        <figure><svg class="mark" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="Kersat mark">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <rect x="6.5" y="6.5" width="83" height="83" rx="19" fill="none" stroke="rgba(255,255,255,.1)"/>
+          <g fill="#f4f4f6">
+            <rect x="24" y="26" width="20" height="20" rx="4"/>
+            <rect x="52" y="26" width="20" height="20" rx="4"/>
+            <rect x="24" y="54" width="20" height="20" rx="4"/>
+          </g>
+          <rect x="52" y="54" width="20" height="20" rx="4" fill="#dc2626"/>
+        </svg><figcaption>app icon</figcaption></figure>
+
+        <figure><svg class="mark" width="48" height="48" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g fill="#f4f4f6"><rect x="24" y="26" width="20" height="20" rx="4"/><rect x="52" y="26" width="20" height="20" rx="4"/><rect x="24" y="54" width="20" height="20" rx="4"/></g>
+          <rect x="52" y="54" width="20" height="20" rx="4" fill="#dc2626"/>
+        </svg><figcaption>48</figcaption></figure>
+
+        <figure><svg class="mark" width="32" height="32" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g fill="#f4f4f6"><rect x="24" y="26" width="20" height="20" rx="4"/><rect x="52" y="26" width="20" height="20" rx="4"/><rect x="24" y="54" width="20" height="20" rx="4"/></g>
+          <rect x="52" y="54" width="20" height="20" rx="4" fill="#dc2626"/>
+        </svg><figcaption>32</figcaption></figure>
+
+        <figure><svg class="mark" width="16" height="16" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g fill="#f4f4f6"><rect x="24" y="26" width="20" height="20" rx="4"/><rect x="52" y="26" width="20" height="20" rx="4"/><rect x="24" y="54" width="20" height="20" rx="4"/></g>
+          <rect x="52" y="54" width="20" height="20" rx="4" fill="#dc2626"/>
+        </svg><figcaption>16</figcaption></figure>
+      </div>
+
+      <div class="wm">
+        <div class="en">KERSAT</div>
+        <div class="ar" lang="ar" dir="rtl">كُرسات</div>
+        <div class="sl">lessons &middot; تعلّم</div>
+      </div>
+
+      <div class="appbar">
+        <svg class="mark" width="28" height="28" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g fill="#f4f4f6"><rect x="24" y="26" width="20" height="20" rx="4"/><rect x="52" y="26" width="20" height="20" rx="4"/><rect x="24" y="54" width="20" height="20" rx="4"/></g>
+          <rect x="52" y="54" width="20" height="20" rx="4" fill="#dc2626"/>
+        </svg>
+        <div><div class="nm">KERSAT</div><div class="sub">chess &middot; lessons</div></div>
+        <div class="sp"></div>
+        <button class="btn">Resume</button>
+        <button class="btn ghost">Play</button>
+      </div>
+
+      <dl>
+        <dt>Reads as</dt><dd>A school. Progress, levels, lessons.</dd>
+        <dt>Good</dt><dd>Explains the whole product in one word. The four squares are literally your progress bar, and the red one is &ldquo;you are here&rdquo;.</dd>
+        <dt>Risk</dt><dd><span class="no">Narrow.</span> Sounds like homework, not like the place you hang out. Two words in English: &ldquo;Kersat Chess&rdquo;.</dd>
+        <dt>Domain</dt><dd>kersat / kersat.tn &mdash; probably free, definitely not taken.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ── SHATRANGI ──────────────────────────────────────────── -->
+  <section class="card">
+    <div class="pad">
+      <div class="name"><b>SHATRANGI</b><span lang="ar" dir="rtl">شطرنجي</span></div>
+      <p class="tag">The Arabic word itself, &ldquo;my chess&rdquo;. Heritage, warmth, unmistakably local.</p>
+
+      <div class="sizes">
+        <figure><svg class="mark" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="Shatrangi mark">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <rect x="6.5" y="6.5" width="83" height="83" rx="19" fill="none" stroke="rgba(255,255,255,.1)"/>
+          <g transform="translate(48 48)">
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="5" transform="rotate(45)"/>
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="5"/>
+            <circle r="8" fill="#dc2626"/>
+          </g>
+        </svg><figcaption>app icon</figcaption></figure>
+
+        <figure><svg class="mark" width="48" height="48" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g transform="translate(48 48)">
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="5" transform="rotate(45)"/>
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="5"/>
+            <circle r="8" fill="#dc2626"/>
+          </g>
+        </svg><figcaption>48</figcaption></figure>
+
+        <figure><svg class="mark" width="32" height="32" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g transform="translate(48 48)">
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="6" transform="rotate(45)"/>
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="6"/>
+            <circle r="9" fill="#dc2626"/>
+          </g>
+        </svg><figcaption>32</figcaption></figure>
+
+        <figure><svg class="mark" width="16" height="16" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g transform="translate(48 48)">
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="8" transform="rotate(45)"/>
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="8"/>
+            <circle r="11" fill="#dc2626"/>
+          </g>
+        </svg><figcaption>16</figcaption></figure>
+      </div>
+
+      <div class="wm">
+        <div class="en">SHATRANGI</div>
+        <div class="ar" lang="ar" dir="rtl">شطرنجي</div>
+        <div class="sl">chess, in your own language</div>
+      </div>
+
+      <div class="appbar">
+        <svg class="mark" width="28" height="28" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <g transform="translate(48 48)">
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="6" transform="rotate(45)"/>
+            <rect x="-25" y="-25" width="50" height="50" rx="4" fill="none" stroke="#f4f4f6" stroke-width="6"/>
+            <circle r="9" fill="#dc2626"/>
+          </g>
+        </svg>
+        <div><div class="nm">شطرنجي</div><div class="sub">chess &middot; community</div></div>
+        <div class="sp"></div>
+        <button class="btn">كمّل</button>
+        <button class="btn ghost">العب</button>
+      </div>
+
+      <dl>
+        <dt>Reads as</dt><dd>Home. Your chess, your language, your people.</dd>
+        <dt>Good</dt><dd>The strongest emotional pull of the three. An eight-pointed star is authentically Tunisian/Maghrebi, not a chess cliché &mdash; it is the opposite of every generic knight logo.</dd>
+        <dt>Risk</dt><dd><span class="no">Long + hard to spell.</span> Nobody types &ldquo;shatrangi&rdquo; into a search bar. Spoken it is two syllables; typed it is a typo every time.</dd>
+        <dt>Domain</dt><dd>shatrangi / shatranji.com &mdash; the dot-com is very likely gone, .tn probably not.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ── DUBES ──────────────────────────────────────────────── -->
+  <section class="card">
+    <div class="pad">
+      <div class="name"><b>DUBES</b><span lang="ar" dir="rtl">دوباس</span></div>
+      <p class="tag">Invented, four letters, no meaning to argue about. Pure product energy.</p>
+
+      <div class="sizes">
+        <figure><svg class="mark" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="Dubes mark">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <rect x="6.5" y="6.5" width="83" height="83" rx="19" fill="none" stroke="rgba(255,255,255,.1)"/>
+          <path d="M30 22h16v22h22v16H46v14H30z" fill="#f4f4f6"/>
+          <circle cx="68" cy="68" r="11" fill="#dc2626"/>
+        </svg><figcaption>app icon</figcaption></figure>
+
+        <figure><svg class="mark" width="48" height="48" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <path d="M30 22h16v22h22v16H46v14H30z" fill="#f4f4f6"/>
+          <circle cx="68" cy="68" r="11" fill="#dc2626"/>
+        </svg><figcaption>48</figcaption></figure>
+
+        <figure><svg class="mark" width="32" height="32" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <path d="M30 22h16v22h22v16H46v14H30z" fill="#f4f4f6"/>
+          <circle cx="68" cy="68" r="12" fill="#dc2626"/>
+        </svg><figcaption>32</figcaption></figure>
+
+        <figure><svg class="mark" width="16" height="16" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <path d="M30 22h16v22h22v16H46v14H30z" fill="#f4f4f6"/>
+          <circle cx="68" cy="68" r="13" fill="#dc2626"/>
+        </svg><figcaption>16</figcaption></figure>
+      </div>
+
+      <div class="wm">
+        <div class="en">DUBES</div>
+        <div class="ar" lang="ar" dir="rtl">دوباس</div>
+        <div class="sl">play smarter</div>
+      </div>
+
+      <div class="appbar">
+        <svg class="mark" width="28" height="28" viewBox="0 0 96 96" aria-hidden="true">
+          <rect width="96" height="96" rx="22" fill="#111118"/>
+          <path d="M30 22h16v22h22v16H46v14H30z" fill="#f4f4f6"/>
+          <circle cx="68" cy="68" r="11" fill="#dc2626"/>
+        </svg>
+        <div><div class="nm">DUBES</div><div class="sub">chess &middot; ranked</div></div>
+        <div class="sp"></div>
+        <button class="btn">Play</button>
+        <button class="btn ghost">Watch</button>
+      </div>
+
+      <dl>
+        <dt>Reads as</dt><dd>A product. Fast, competitive, a bit futuristic.</dd>
+        <dt>Good</dt><dd>The mark is a knight&rsquo;s move drawn as an L with the landing square in red &mdash; the one idea nobody else has. Four letters, two syllables, one domain, zero spelling lessons.</dd>
+        <dt>Risk</dt><dd><span class="no">Means nothing.</span> No heritage, no instant meaning. You have to teach the name, and &ldquo;dubes&rdquo; means nothing in Arabic or French-Tunisian, so a Tunisian user gets zero context from it.</dd>
+        <dt>Domain</dt><dd>dubes / dubes.tn &mdash; cheap, and if you ever leave the chess niche the name still works.</dd>
+      </dl>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <hr class="rule">
+  <p><b>My honest pick: SHATRANGI.</b> It is the only one that is <em>yours</em> instead of generic, and the star mark is the only one of the three that could not be mistaken for a template. Yes, it is a mouthful and yes, typing it is a pain &mdash; so the fix is <b>shatrangi.tn</b> in the URL and &ldquo;شطرنجي&rdquo; on every Arabic surface, which is 90% of your users anyway. If you would rather have zero friction and scale a global brand later, take DUBES. KERSAT is the best <em>lesson</em> name and the worst <em>app</em> name &mdash; it boxes you into tutorials before you have a single multiplayer game.</p>
+  <p>Say the word and I will build the real thing: favicon, PWA manifest, app icons, store name, and the in-app wordmark in both languages.</p>
+</footer>
+
+</body>
+</html>

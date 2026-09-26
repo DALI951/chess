@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>كرسات — شطرنج</title>
+<meta name="description" content="العب الشطرنج ضد الحاسوب أو ضد لاعبين حقيقيين. بالعربية والإنجليزية.">
+<meta name="theme-color" content="#0a0a0c">
+<link rel="stylesheet" href="assets/css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<a class="skip" href="#board-wrap" data-i18n="skipToBoard">تخطَّ إلى الرقعة</a>
+
+<header class="top">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">♞</span>
+    <span class="brand-name" id="brandName">كرسات</span>
+  </div>
+
+  <nav class="nav" aria-label="main">
+    <a class="nav-link is-active" href="#play" data-i18n="navPlay">العب</a>
+    <a class="nav-link" href="#puzzles" data-i18n="navPuzzles">ألغاز</a>
+    <a class="nav-link" href="#leaderboard" data-i18n="navLeaderboard">المتصدرون</a>
+  </nav>
+
+  <div class="top-actions">
+    <div class="seg" role="group" aria-label="board theme">
+      <button class="seg-btn" data-theme="dark" aria-pressed="true"><span class="swatch swatch-dark"></span><span class="sr-only">dark</span></button>
+      <button class="seg-btn" data-theme="wood" aria-pressed="false"><span class="swatch swatch-wood"></span><span class="sr-only">wood</span></button>
+      <button class="seg-btn" data-theme="contrast" aria-pressed="false"><span class="swatch swatch-contrast"></span><span class="sr-only">high contrast</span></button>
+    </div>
+    <button class="btn btn-ghost" id="langToggle" lang="en" type="button">
+      <span id="langLabel">EN</span>
+    </button>
+  </div>
+</header>
+
+<main id="play" class="layout">
+
+  <!-- ── board column ───────────────────────────────────────────── -->
+  <section class="board-col">
+
+    <div class="player" id="playerTop">
+      <div class="player-id">
+        <span class="avatar" id="topAvatar">♞</span>
+        <span class="player-meta">
+          <span class="player-name" id="topName">—</span>
+          <span class="player-sub" id="topSub"></span>
+        </span>
+      </div>
+      <div class="player-right">
+        <span class="captured" id="topCaptured"></span>
+        <span class="clock" id="topClock">10:00</span>
+      </div>
+    </div>
+
+    <div class="board-wrap" id="board-wrap">
+      <div class="board" id="board" role="grid" aria-label="chess board" tabindex="0"></div>
+      <div class="board-veil" id="boardVeil" hidden>
+        <div class="veil-card">
+          <strong id="veilTitle"></strong>
+          <span id="veilSub"></span>
+          <div class="veil-actions" id="veilActions"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="player player-bottom" id="playerBottom">
+      <div class="player-id">
+        <span class="avatar" id="botAvatar">♟</span>
+        <span class="player-meta">
+          <span class="player-name" id="botName">—</span>
+          <span class="player-sub" id="botSub"></span>
+        </span>
+      </div>
+      <div class="player-right">
+        <span class="captured" id="botCaptured"></span>
+        <span class="clock" id="botClock">10:00</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── side panel ─────────────────────────────────────────────── -->
+  <aside class="panel">
+
+    <div class="panel-tabs" role="tablist">
+      <button class="tab is-active" role="tab" data-tab="game" aria-selected="true" data-i18n="tabGame">اللعبة</button>
+      <button class="tab" role="tab" data-tab="moves" aria-selected="false" data-i18n="tabMoves">الحركات</button>
+      <button class="tab" role="tab" data-tab="setup" aria-selected="false" data-i18n="tabSetup">الإعدادات</button>
+    </div>
+
+    <!-- game -->
+    <div class="tabpane is-active" data-pane="game">
+      <div class="field">
+        <label for="mode" data-i18n="lblMode">الوضع</label>
+        <select id="mode">
+          <option value="ai" data-i18n="modeAi">ضد الحاسوب</option>
+          <option value="duo" data-i18n="modeDuo">لاعبان على نفس الجهاز</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="timeControl" data-i18n="lblTime">الوقت</label>
+        <select id="timeControl">
+          <option value="300">5 + 0</option>
+          <option value="180+2">3 + 2</option>
+          <option value="600" selected>10 + 0</option>
+          <option value="900+10">15 + 10</option>
+          <option value="1800">30 + 0</option>
+          <option value="0">بدون وقت</option>
+        </select>
+      </div>
+
+      <div class="field" id="levelField">
+        <label for="level">
+          <span data-i18n="lblLevel">مستوى الحاسوب</span>
+          <span class="field-value"><output id="levelOut">1600</output></span>
+        </label>
+        <input type="range" id="level" min="400" max="3000" step="100" value="1600">
+        <div class="range-ends"><span>400</span><span>3000</span></div>
+      </div>
+
+      <div class="field" id="colorField">
+        <span class="label" data-i18n="lblColor">ألوانك</span>
+        <div class="seg seg-wide" role="group">
+          <button class="seg-btn is-on" data-color="w" data-i18n="colorWhite">أبيض</button>
+          <button class="seg-btn" data-color="b" data-i18n="colorBlack">أسود</button>
+          <button class="seg-btn" data-color="r" data-i18n="colorRandom">عشوائي</button>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="newGame" data-i18n="btnNewGame">لعبة جديدة</button>
+      </div>
+
+      <div class="btn-row btn-row-3">
+        <button class="btn" id="undoBtn" data-i18n="btnUndo">تراجع</button>
+        <button class="btn" id="flipBtn" data-i18n="btnFlip">قلب</button>
+        <button class="btn btn-danger" id="resignBtn" data-i18n="btnResign">استسلام</button>
+      </div>
+
+      <div class="stat-row" id="gameStats">
+        <div class="stat"><span class="stat-k" data-i18n="statMoves">الحركات</span><span class="stat-v" id="statMoves">0</span></div>
+        <div class="stat"><span class="stat-k" data-i18n="statEval">التقييم</span><span class="stat-v" id="statEval">—</span></div>
+      </div>
+    </div>
+
+    <!-- moves -->
+    <div class="tabpane" data-pane="moves">
+      <div class="moves" id="moveList" role="log" aria-live="polite"></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="copyPgn" data-i18n="btnCopyPgn">نسخ PGN</button>
+        <button class="btn btn-ghost" id="copyFen" data-i18n="btnCopyFen">نسخ FEN</button>
+      </div>
+    </div>
+
+    <!-- setup -->
+    <div class="tabpane" data-pane="setup">
+      <div class="field">
+        <label for="fenInput" data-i18n="lblFen">موقف مخصص (FEN)</label>
+        <textarea id="fenInput" rows="3" spellcheck="false" dir="ltr"></textarea>
+        <p class="hint" id="fenHint" data-i18n="hintFen">اتركه فارغًا للعبة جديدة من البداية.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="loadFen" data-i18n="btnLoadFen">تحميل</button>
+        <button class="btn btn-ghost" id="clearFen" data-i18n="btnClearFen">مسح</button>
+      </div>
+      <p class="note" data-i18n="noteSoon">الحسابات واللعب عبر الإنترنت في المرحلة التالية.</p>
+    </div>
+  </aside>
+</main>
+
+<footer class="foot">
+  <span data-i18n="footTag">محرك قواعده مُختبَر بسبعة ملايين عقدة.</span>
+</footer>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-# secrets — NEVER commit (real file lives only on this PC and the server)
+# secrets: NEVER commit (the real file lives only on this PC and on the server)
 config.local.php
 .env
 *.local.php
@@ -25,3 +25,6 @@ out/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# generated UI screenshots from tools/smoke.mjs (regenerate: npm run test:ui:shots)
+tools/shots/
