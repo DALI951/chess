@@ -132,6 +132,53 @@ check(
 );
 check((bool)preg_match('/\bblack_user\b/', $settleBody), 'settleRatings reads black_user, so a seated game rates');
 
+group('a game can be named by its id OR its room code');
+
+$apiSource = (string)file_get_contents(dirname(__DIR__, 2) . '/api/game.php');
+// The client only ever sends ONE field, "game", and the only identifier the
+// server hands it is the room code. Resolving the id alone means a client that
+// sends the code is told the game does not exist - and a client that sends
+// Number(code) sends NaN, which is not even a code.
+check(
+    str_contains($apiSource, "ctype_digit(\$gameParam)"),
+    'game.php accepts a room code in the "game" field, not only a numeric id'
+);
+check(
+    str_contains($apiSource, "GameRepo::find(\$code)") || str_contains($apiSource, 'GameRepo::find($code)'),
+    'and it resolves that code to the game'
+);
+
+$online = (string)file_get_contents(dirname(__DIR__, 2) . '/assets/js/online.js');
+check(
+    !preg_match('/state\.gameId\s*=\s*Number\(/', $online),
+    'the client does not Number() the game identifier',
+    'Number("ABC123") is NaN, which polls a game that does not exist'
+);
+check(
+    !preg_match('/state\.gameId\s*=\s*0\b/', $online),
+    'the "no game" sentinel is falsy without being a number'
+);
+
+group('an invitation works in a browser that is already open');
+
+$app = (string)file_get_contents(dirname(__DIR__, 2) . '/assets/js/app.js');
+// Pasting #g=CODE into an open tab is a same-document navigation: the module does
+// not run again, so the boot block that opens the invite never fires and the link
+// appears to do nothing. Only a hashchange listener can catch it.
+check(
+    str_contains($app, "addEventListener('hashchange'"),
+    'the app listens for hashchange, so a pasted invite link works in an open tab'
+);
+// The seat button is the ONLY way into a room you were invited to, and it is shown
+// exactly when you are watching a room that still has a free seat.
+check(
+    (bool)preg_match(
+        '/const canSit = g\.status === \'waiting\' && g\.me === null/',
+        $app
+    ),
+    'the "Take this seat" button is offered to a watcher of a room with a free seat'
+);
+
 group('matchmaking reads the open games as the queue');
 
 // Matchmaking has no table of its own: an open game IS somebody waiting, so the

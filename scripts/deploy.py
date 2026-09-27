@@ -41,6 +41,11 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".github", "shots", "test-re
 # the template and the real config are both handled explicitly below
 SKIP_FILES = {"config.example.php", "config.local.php", ".env", ".env.example", ".env.local"}
 
+# Replaced with a content hash on every deploy. See the block in main().
+STAMP_TOKEN = "ASSETSTAMP"
+# Text files get the token substituted; everything else is uploaded byte for byte.
+TEXT_EXT = {".html", ".js", ".mjs", ".css", ".json", ".txt", ".md"}
+
 CREDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.local.json")
 
 
@@ -91,6 +96,30 @@ def rm_rf(sftp, path):
         sftp.remove(path)
 
 
+def asset_stamp(root):
+    """A short hash of the cacheable assets, used as their ?v= query string.
+
+    Hashes CONTENT, not mtimes, so touching a file changes nothing and editing
+    one changes only what it should. Covers every module the page loads plus the
+    stylesheet: app.js is a module graph, so a change deep in engine.js has to
+    bust the entry point too, and a per-file hash would miss exactly that.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    targets = [
+        "assets/js/app.js", "assets/js/api.js", "assets/js/online.js",
+        "assets/js/i18n.js", "assets/js/engine.js", "assets/js/pieces.js",
+        "assets/js/worker-ai.js", "assets/css/style.css",
+    ]
+    for rel in targets:
+        path = os.path.join(root, rel)
+        h.update(rel.encode("utf-8"))
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                h.update(f.read())
+    return h.hexdigest()[:10]
+
+
 def main():
     dry = "--dry-run" in sys.argv
     pw, src = creds()
@@ -133,13 +162,65 @@ def main():
         print("cleared old contents")
 
     files = walk(ROOT)
+    files.sort()
+
+    # --- the cache stamp --------------------------------------------------------
+    # .htaccess serves every .js and .css as max-age=31536000, immutable: one
+    # year, and the browser is told never to come back and ask. That is correct
+    # ONLY if the URL changes when the file does, and until now it did not -
+    # index.html asked for "assets/js/app.js" forever. So a browser that visited
+    # once kept the first app.js it ever downloaded, and every later fix -
+    # including a broken promotion picker and dead quick-play buttons - was
+    # invisible to anyone who had the site open. The code on the server was right
+    # and the code in the browser was a year old, and nothing said so.
+    #
+    # The fix is a content hash in the query string, so the stamp is derived from
+    # the files rather than remembered by a human: identical assets produce an
+    # identical URL and stay cached, changed assets produce a new URL that no
+    # cache has seen. Nobody has to bump anything.
+    #
+    # It replaces the ASSETSTAMP token in EVERY text asset, not just index.html,
+    # and that detail is the whole ballgame. Stamping only the <script> tag fixes
+    # the entry point and nothing else: app.js is a module graph, and its
+    # imports - './engine.js', './i18n.js', './online.js' - are relative
+    # specifiers that do NOT inherit the query string of the importer. So the
+    # browser would fetch a brand new app.js and then reach straight into its
+    # cache for last month's i18n.js. Fresh entry point, stale everything it
+    # imports, which is a worse failure than uniform staleness because it looks
+    # like a partial fix.
+    stamp = asset_stamp(ROOT)
+    print(f"asset stamp: {stamp}  (replaces ASSETSTAMP in every html/js/css)")
+
+    stamped = 0
     for rel, full in files:
+        remote = posixpath.join(REMOTE, rel)
+        ext = os.path.splitext(rel)[1].lower()
+        if ext in TEXT_EXT:
+            with open(full, "rb") as f:
+                text = f.read().decode("utf-8")
+            hits = text.count(STAMP_TOKEN)
+            text = text.replace(STAMP_TOKEN, stamp)
+            if dry:
+                print("  DRY put", rel, f"({hits} stamp{'s' if hits != 1 else ''})")
+                continue
+            mkdirs(posixpath.dirname(remote))
+            with sftp.open(remote, "wb") as f:
+                f.write(text.encode("utf-8"))
+            stamped += hits
+            print("  put", rel, f"({hits} stamp{'s' if hits != 1 else ''})" if hits else "")
+            continue
         if dry:
             print("  DRY put", rel)
             continue
-        mkdirs(posixpath.dirname(posixpath.join(REMOTE, rel)))
-        sftp.put(full, posixpath.join(REMOTE, rel))
+        mkdirs(posixpath.dirname(remote))
+        sftp.put(full, remote)
         print("  put", rel)
+
+    if stamped == 0:
+        print("  !! no ASSETSTAMP token found anywhere - the site will not cache-bust")
+    else:
+        print(f"cache-busted {stamped} references")
+
 
     # The real config, re-uploaded every time because the wipe above removes it.
     # Its path is fixed: the SFTP account is chrooted to public_html, so there is

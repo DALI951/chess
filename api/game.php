@@ -67,10 +67,27 @@ Http::endpoint(static function (): void {
     $action = Http::str('action', 20) ?: 'state';
     $me     = Auth::user();
     $now    = Db::nowMs();
-    $gameId = Http::int('game');
 
-    $loadGame = static function () use ($gameId): array {
-        $g = $gameId > 0 ? GameRepo::byId($gameId) : GameRepo::find(Http::str('code', 12));
+    // A game can be named two ways: the numeric row id, or the six-character
+    // room code. BOTH have to work in the "game" field, because that is the only
+    // field the client sends.
+    //
+    // publicState() deliberately does not include the numeric id - sequential ids
+    // tell a stranger how many games the site has, which is nobody's business -
+    // so the code is the only identifier a client ever receives. It then used to
+    // do state.gameId = Number(code) on it, and Number("ABC123") is NaN, so every
+    // poll went out as game=NaN and came back no_such_game, forever. The game
+    // never updated and no error ever appeared on the page: the board just sat
+    // there. Resolving the code as well as the id makes the endpoint work for
+    // either spelling, so a client bug can never again be a dead board.
+    $gameParam = Http::str('game', 12);
+    $gameId    = ($gameParam !== '' && ctype_digit($gameParam)) ? (int)$gameParam : 0;
+
+    $loadGame = static function () use ($gameId, $gameParam): array {
+        $code = ($gameId === 0 && $gameParam !== '') ? $gameParam : Http::str('code', 12);
+        $g = $gameId > 0
+            ? GameRepo::byId($gameId)
+            : ($code !== '' ? GameRepo::find($code) : null);
         if ($g === null) throw new HttpError('no_such_game', 'That game does not exist.', 404);
         return $g;
     };

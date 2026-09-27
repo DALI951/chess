@@ -30,8 +30,8 @@
  * @author DALI951
  */
 
-import { api, ApiError } from './api.js';
-import { Chess, WHITE, BLACK } from './engine.js';
+import { api, ApiError } from './api.js?v=ASSETSTAMP';
+import { Chess, WHITE, BLACK } from './engine.js?v=ASSETSTAMP';
 
 const POLL_ACTIVE_MS = 500;      // half a second while it is somebody's turn
 const POLL_IDLE_MS = 2000;       // two seconds when waiting or watching
@@ -39,7 +39,7 @@ const POLL_CHAT_MS = 2500;
 
 const state = {
   game: null,          // {code, status, white, black, tc, clock, moves, ...}
-  gameId: 0,
+  gameId: '',
   myColor: WHITE,
   user: null,
   pollTimer: null,
@@ -282,8 +282,13 @@ export async function watch(code) {
 function adopt(res, code, watching = false) {
   const g = res.game;
   if (!g) throw new Error('no game in that response');
+  // publicState() has no numeric id on purpose, so the room CODE is the only
+  // identifier this client ever gets. Do NOT Number() it: Number("ABC123") is
+  // NaN, and state.gameId = NaN means every later poll asks for game=NaN and is
+  // told the game does not exist - which is a board that never updates and no
+  // error anywhere. The server resolves this field as a code or an id.
   g.id = g.id ?? res.code ?? code;
-  state.gameId = Number(g.id);
+  state.gameId = g.id;
   state.game = g;
   state.lastPly = -1;                 // force one rebuild on the next paint
   state.lastChatId = 0;
@@ -299,7 +304,7 @@ export function leave() {
   stopPolling();
   stopChat();
   state.game = null;
-  state.gameId = 0;
+  state.gameId = '';
   state.lastPly = -1;
   state.lastChatId = 0;
   state.drawOfferedBy = null;

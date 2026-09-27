@@ -10,9 +10,52 @@
 AddType application/wasm .wasm
 
 <IfModule mod_headers.c>
-    # 640KB of immutable engine: the only thing on this site worth caching hard.
-    <FilesMatch "\.(wasm|js)$">
-        Header set Cache-Control "public, max-age=31536000, immutable"
+    # --- caching, and the bug this comment exists to prevent -------------------
+    # This used to be:
+    #     <FilesMatch "\.(wasm|js)$">
+    #       Header set Cache-Control "public, max-age=31536000, immutable"
+    #
+    # One year, never revalidate. That is a fine policy for a file whose URL
+    # changes when its contents do - a content-hashed bundle - and a disaster
+    # for one whose URL never changes. These filenames are stable: index.html
+    # asked for "assets/js/app.js" and got it, and asked again tomorrow and got
+    # the same URL, so a browser that visited once kept the first app.js it ever
+    # downloaded and never asked again.
+    #
+    # The result was a site where the code on the server was correct and the code
+    # in the browser was months old, and nothing anywhere said so. A broken
+    # promotion picker, dead quick-play and share buttons, and an online game
+    # that did not work - all of it deployed correctly, all of it invisible to
+    # anyone whose browser had the site open before the fix.
+    #
+    # So: revalidate. ETag and Last-Modified are both sent already (they are in
+    # the headers above this comment, being the Apache defaults), so an unchanged
+    # file costs one small 304 and no bytes at all. That is cheap enough to stop
+    # optimising away, and it is the difference between "you are looking at
+    # yesterday's site" and "you are looking at this one".
+    #
+    # scripts/deploy.py additionally stamps ?v=<content hash> into index.html, so
+    # a changed bundle also gets a brand-new URL. Two mechanisms, deliberately:
+    # the stamp covers index.html's own references, and revalidation covers the
+    # relative imports inside app.js, which do NOT inherit the query string.
+    <FilesMatch "\.js$">
+        Header set Cache-Control "public, max-age=0, must-revalidate"
+    </FilesMatch>
+
+    # CSS gets the same treatment for the same reason.
+    <FilesMatch "\.css$">
+        Header set Cache-Control "public, max-age=0, must-revalidate"
+    </FilesMatch>
+
+    # The engine is 640KB, so it is worth serving without a round trip. Still
+    # revalidating rather than immutable: a 304 costs nothing, and an immutable
+    # engine file is the same year-old trap in a much heavier disguise.
+    <FilesMatch "\.wasm$">
+        Header set Cache-Control "public, max-age=604800, must-revalidate"
+    </FilesMatch>
+
+    <FilesMatch "\.(png|svg|woff2?)$">
+        Header set Cache-Control "public, max-age=604800, must-revalidate"
     </FilesMatch>
 
     # The app is same-origin only and loads no third-party anything. Saying so in

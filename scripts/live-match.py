@@ -100,23 +100,36 @@ def main():
           str(jq.get("game", {}).get("status")))
 
     print("\n-- and it is a real game, not just a matching row")
-    # publicState has no numeric id: the client addresses games by code.
-    st, j = a.post("game.php", {"action": "state", "code": code_a})
-    check(st == 200 and j.get("ok"), "A can read the game it was put in", f"{st} {j.get('error')}")
+    # Address it the way the CLIENT does: the "game" field holding a room code.
+    # Every other check here used the "code" field, which is the shape my own
+    # test code was written in - and the browser never sends that. So the whole
+    # suite was green while the page polled a game the server could not resolve.
+    st, j = a.post("game.php", {"action": "state", "game": code_a})
+    check(st == 200 and j.get("ok"), "A can read the game by putting the CODE in 'game'",
+          f"{st} {j.get('error')}")
     g = j.get("game", {})
-    check(g.get("status") == "active", "A sees it as active", str(g.get("status")))
+    check(st == 200 and g.get("status") == "active", "A sees it as active", str(g.get("status")))
     white, black = g.get("white") or {}, g.get("black") or {}
     check(bool(white.get("id")) and bool(black.get("id")),
           "both seats hold a real player", f"{white.get('id')} / {black.get('id')}")
     check(white.get("id") != black.get("id"), "and they are two different people",
           f"{white.get('id')} / {black.get('id')}")
+    # publicState omits the numeric id, so the code really is all a client has
+    check("id" not in g, "the public state carries no numeric id to leak row counts",
+          str(sorted(g.keys())[:6]))
 
-    st, j = a.post("game.php", {"action": "move", "code": code_a,
+    st, j = a.post("game.php", {"action": "move", "game": code_a,
                                 "from": "e2", "to": "e4"})
     check(st == 200 and j.get("ok"), "A can play the opening move", f"{st} {j.get('error')}")
-    st, j = b.post("game.php", {"action": "move", "code": code_a,
+    st, j = b.post("game.php", {"action": "move", "game": code_a,
                                 "from": "e7", "to": "e5"})
     check(st == 200 and j.get("ok"), "B can reply", f"{st} {j.get('error')}")
+    st, j = a.post("game.php", {"action": "resign", "game": code_a})
+    check(st == 200 and j.get("ok"), "resign works the same way", f"{st} {j.get('error')}")
+    # The numeric-id spelling is covered by scripts/live-smoke.py, which addresses
+    # games as {"action":"move","game":7}. Both spellings have to work, because the
+    # client only ever sends one of them and the server used to accept only the id.
+
 
     print("\n-- a third player is never walked into a game in progress")
     c = Client("c")

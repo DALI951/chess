@@ -11,9 +11,9 @@
  *
  * @author DALI951
  */
-import { Chess, WHITE, BLACK, typeOf, colorOf, fromAlgebraic } from './engine.js';
-import { pieceMarkup, GLYPH } from './pieces.js';
-import { loadLang, applyLang, t } from './i18n.js';
+import { Chess, WHITE, BLACK, typeOf, colorOf, fromAlgebraic } from './engine.js?v=ASSETSTAMP';
+import { pieceMarkup, GLYPH } from './pieces.js?v=ASSETSTAMP';
+import { loadLang, applyLang, t } from './i18n.js?v=ASSETSTAMP';
 
 /**
  * The online controller is imported here and api.js is deliberately NOT imported
@@ -21,7 +21,7 @@ import { loadLang, applyLang, t } from './i18n.js';
  * there is exactly one place where "the server owns the game" can be broken by
  * accident - and it is not in the file that draws squares.
  */
-import * as online from './online.js';
+import * as online from './online.js?v=ASSETSTAMP';
 
 const $ = (id) => document.getElementById(id);
 const FILES = 'abcdefgh';
@@ -432,7 +432,7 @@ function askEngine() {
  */
 function ensureEngine() {
   if (worker) return;
-  worker = new Worker(new URL('./worker-ai.js', import.meta.url), { type: 'module' });
+  worker = new Worker(new URL('./worker-ai.js?v=ASSETSTAMP', import.meta.url), { type: 'module' });
   worker.onmessage = (e) => {
     const { id: rid, type, move, score, cp, nodes, depth, moverIsWhite } = e.data;
     if (rid !== searchId) return;                 // a newer game superseded this search
@@ -1173,16 +1173,28 @@ newGame();
 online.loadSession().then(() => { paintAuth(); paintOnlinePanel(); });
 // A #g=CODE in the URL is an invitation. Landing on one opens it, and if this
 // browser is not logged in the panel says so instead of failing silently.
-const invited = new URLSearchParams(location.hash.replace(/^#/, '')).get('g');
-if (invited) {
-  $('onlineCodeInput').value = invited.toUpperCase();
+function openInvite(code) {
+  $('onlineCodeInput').value = code;
   withBusy(async () => {
     // watching, not joining: taking the seat is a separate, deliberate click
-    await online.watch(invited.toUpperCase());
+    await online.watch(code);
     $('boardVeil').hidden = true;
     newGame();
   });
 }
+
+const invited = new URLSearchParams(location.hash.replace(/^#/, '')).get('g');
+if (invited) openInvite(invited.toUpperCase());
+
+// Pasting an invite link into a tab that is already open the site changes only
+// the hash, and that is a SAME-DOCUMENT navigation: this file does not run a
+// second time, so the block above never fires and the link appears to do nothing
+// at all. hashchange is the event that does fire, and an invitation has to work
+// whether the page was just opened or has been sitting there for an hour.
+addEventListener('hashchange', () => {
+  const code = new URLSearchParams(location.hash.replace(/^#/, '')).get('g');
+  if (code) openInvite(code.toUpperCase());
+});
 
 // Exposed for the smoke test: the online controller is stateful and there is no
 // way to test a clock you cannot read.
