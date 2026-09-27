@@ -37,9 +37,20 @@ DirectoryIndex index.html
 # client reads on load. The server never sees it, so nothing needs to route it.
 
 # --- never serve the plumbing -------------------------------------------------
-# config.local.php holds the database password and lives only on this PC and on
-# the server. If a stray .htaccess or a server misconfiguration ever exposes the
-# directory, these four lines are the difference between a leak and a 403.
+# .env holds the database password and lives only on this PC and on the server.
+# It is the most dangerous filename on the site: it is PLAIN TEXT, so unlike
+# config.local.php there is no PHP handler between a request and the password.
+# The deny below is the only thing standing between the internet and it.
+#
+# /\.env$ also covers .env.example and any .env.local, deliberately: an example
+# file is harmless today, and a pattern that only matches the exact current name
+# is one rename away from leaking the real one.
+<FilesMatch "(^|/)\.env(\.|$)">
+    Require all denied
+</FilesMatch>
+
+# config.local.php is the OLDER format, still supported so an existing
+# deployment keeps booting, and still denied for the same reason.
 <FilesMatch "^(config\.local\.php|config\.example\.php|README\.md|STATUS\.md|package(-lock)?\.json)$">
     Require all denied
 </FilesMatch>

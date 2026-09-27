@@ -28,28 +28,7 @@ URL = "https://modali.powerpme.com/chess/api/db-cleanup.php"
 CREDS_FILE = os.path.join(HERE, "credentials.local.json")
 
 
-def sftp_password():
-    for var in ("CHESS_SFTP_PASS", "SITEHUB_SFTP_PASS", "DEKKAN_SFTP_PASS"):
-        v = os.environ.get(var)
-        if v:
-            return v
-    if os.path.isfile(CREDS_FILE):
-        with open(CREDS_FILE, encoding="utf-8") as f:
-            return (json.load(f) or {}).get("sftp_password")
-    return None
-
-
-def load_token():
-    v = os.environ.get("CHESS_SETUP_TOKEN")
-    if v:
-        return v
-    path = os.path.join(ROOT, "config.local.php")
-    if os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if "setup_token" in line and "=>" in line:
-                    return line.split("=>", 1)[1].strip().strip("',\" ")
-    return None
+from settings import load_token, sftp_password  # noqa: E402  (scripts/ is on sys.path)
 
 
 def main():
@@ -58,7 +37,7 @@ def main():
     if not pw:
         raise SystemExit("no SFTP password. set CHESS_SFTP_PASS, or fill in scripts/credentials.local.json")
     if not token:
-        raise SystemExit("no setup token. set CHESS_SETUP_TOKEN, or put one in config.local.php")
+        raise SystemExit("no setup token. set CHESS_SETUP_TOKEN, or put CHESS_SETUP_TOKEN in .env")
 
     t = paramiko.Transport((HOST, 22))
     t.connect(username=USER, password=pw)

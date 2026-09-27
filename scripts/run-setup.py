@@ -30,30 +30,7 @@ URL = "https://modali.powerpme.com/chess/api/setup.php"
 CREDS_FILE = os.path.join(HERE, "credentials.local.json")
 
 
-def load_token():
-    """The token out of config.local.php, so it is written down in one place."""
-    for var in ("CHESS_SETUP_TOKEN",):
-        v = os.environ.get(var)
-        if v:
-            return v
-    path = os.path.join(ROOT, "config.local.php")
-    if os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if "setup_token" in line and "=>" in line:
-                    return line.split("=>", 1)[1].strip().strip("',\" ")
-    return None
-
-
-def sftp_password():
-    for var in ("CHESS_SFTP_PASS", "SITEHUB_SFTP_PASS", "DEKKAN_SFTP_PASS"):
-        v = os.environ.get(var)
-        if v:
-            return v
-    if os.path.isfile(CREDS_FILE):
-        with open(CREDS_FILE, encoding="utf-8") as f:
-            return (json.load(f) or {}).get("sftp_password")
-    return None
+from settings import load_token, sftp_password  # noqa: E402  (path set above)
 
 DENY_BLOCK = """<FilesMatch "^(setup\\.php)$">
     Require all denied

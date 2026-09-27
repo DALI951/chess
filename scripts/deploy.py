@@ -31,12 +31,15 @@ import paramiko
 HOST = "modali.powerpme.com"
 USER = "modali"
 REMOTE = "/public_html/chess"
-CONFIG_REMOTE = f"{REMOTE}/config.local.php"
+CONFIG_REMOTE = f"{REMOTE}/.env"
+# The old config file. It used to hold the same password in the same place, so
+# every deploy deletes it from the server rather than leaving it to rot there.
+LEGACY_REMOTE = f"{REMOTE}/config.local.php"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".github", "shots", "test-results"}
 # the template and the real config are both handled explicitly below
-SKIP_FILES = {"config.example.php", "config.local.php"}
+SKIP_FILES = {"config.example.php", "config.local.php", ".env", ".env.example", ".env.local"}
 
 CREDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.local.json")
 
@@ -138,16 +141,29 @@ def main():
         sftp.put(full, posixpath.join(REMOTE, rel))
         print("  put", rel)
 
-    # the real config, re-uploaded every time because the wipe above removes it
-    local_cfg = os.path.join(ROOT, "config.local.php")
-    if os.path.isfile(local_cfg):
+    # The real config, re-uploaded every time because the wipe above removes it.
+    # Its path is fixed: the SFTP account is chrooted to public_html, so there is
+    # nowhere above the app to write, and it has to sit where the .htaccess
+    # denies the name.
+    local_env = os.path.join(ROOT, ".env")
+    if os.path.isfile(local_env):
         if dry:
-            print("  DRY put config.local.php")
+            print("  DRY put .env")
         else:
-            sftp.put(local_cfg, CONFIG_REMOTE)
-            print("  put config.local.php (into the path .htaccess denies)")
+            sftp.put(local_env, CONFIG_REMOTE)
+            print("  put .env (into the path .htaccess denies)")
     else:
-        print("  !! no local config.local.php - the API will not boot")
+        print("  !! no local .env - the API will not boot")
+
+    # Remove the old PHP config from the server. It held the same password in
+    # the same directory, and leaving a superseded secret on a live server is
+    # just a second thing to forget about.
+    if not dry:
+        try:
+            sftp.remove(LEGACY_REMOTE)
+            print("  removed the old config.local.php from the server")
+        except IOError:
+            pass
 
     sftp.close()
     t.close()
