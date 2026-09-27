@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 $quick = in_array('--quick', $argv, true);
 $here = __DIR__;
-$suites = ['EnginePerftTest.php', 'SanTest.php', 'ParityTest.php', 'GameStateTest.php', 'SchemaTest.php', 'SqlColumnsTest.php', 'ConfigTest.php'];
+$suites = ['EnginePerftTest.php', 'SanTest.php', 'ParityTest.php', 'GameStateTest.php', 'SchemaTest.php', 'SqlColumnsTest.php', 'ConfigTest.php', 'PrepareTest.php', 'GameContractTest.php'];
 
 $failed = 0;
 foreach ($suites as $suite) {

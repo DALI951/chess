@@ -92,9 +92,15 @@ Http::endpoint(static function (): void {
                     ['a' => (int)$me['id'], 'b' => $id, 'now' => $now]
                 );
             } else {
+                // The delete is symmetric - friendship is one row, not two - so
+                // each side gets its own placeholder name. :a and :b written
+                // twice apiece is SQLSTATE[HY093] under native prepares, which is
+                // a 500 on every unfriend click.
                 Db::run(
-                    'DELETE FROM friends WHERE (user_id = :a AND friend_id = :b) OR (user_id = :b AND friend_id = :a)',
-                    ['a' => (int)$me['id'], 'b' => $id]
+                    'DELETE FROM friends
+                      WHERE (user_id = :a AND friend_id = :b)
+                         OR (user_id = :b2 AND friend_id = :a2)',
+                    ['a' => (int)$me['id'], 'b' => $id, 'b2' => $id, 'a2' => (int)$me['id']]
                 );
             }
             Http::done(['friends' => socialFriends((int)$me['id'], $now), 'now_ms' => $now]);

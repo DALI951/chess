@@ -2,6 +2,10 @@
 config.local.php
 .env
 *.local.php
+# the SFTP password for scripts/deploy.py and scripts/run-setup.py. Without it
+# they read $CHESS_SFTP_PASS instead. Same rule, same reason.
+scripts/credentials.local.json
+scripts/*.local.*
 
 # node
 node_modules/

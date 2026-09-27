@@ -87,6 +87,22 @@ final class GameState
             'started_at_ms'     => $started ? $now : null,
             'ended_at_ms'       => null,
             'updated_at_ms'     => $now,
+            // The two spellings the row can be read under, so a row from
+            // GameState::create() and a row read back out of the games table
+            // are the same shape. The table calls these created_ms and
+            // updated_ms; this class calls them created_at_ms and updated_at_ms,
+            // and every other key here (turn_started_at_ms, ended_at_ms) uses
+            // the _at_ form. Carrying both means a caller cannot be handed a
+            // row missing a key it expects, which is a warning here and a wrong
+            // value later.
+            'created_ms'        => $now,
+            'updated_ms'        => $now,
+            // sans is TEXT NOT NULL on games, kept in step with game_moves by
+            // play(). Leaving it out here meant GameRepo::insert() bound NULL
+            // and every single game creation was a 500:
+            // "Column 'sans' cannot be null". An empty move list is [], which
+            // is what GameRepo::sans() returns for a game nobody has moved in.
+            'sans'              => '[]',
         ];
     }
 
@@ -118,10 +134,22 @@ final class GameState
      */
     public static function engine(array $game, array $sans): Chess
     {
-        $start = ((int)($game['ply'] ?? 0) === 0 && !empty($sans) === false && ($game['fen'] ?? '') !== Chess::START_FEN)
-            ? (string)$game['fen']
-            : Chess::START_FEN;
-        $e = new Chess($start);
+        // The stored fen is the position the next move is played FROM, and it is
+        // the only thing here that is correct for a game which did not start from
+        // the standard array: rebuilding from START_FEN and replaying is wrong
+        // the moment a game is set up from something else, and it was wrong for
+        // EVERY move here because the caller was not passing the history - so
+        // the engine sat at the starting position and reported white to move no
+        // matter what the row said.
+        //
+        // The moves are still taken when there is no fen to load, which is the
+        // only case where replaying is the only option available.
+        $fen = (string)($game['fen'] ?? '');
+        if ($fen !== '') {
+            return new Chess($fen);
+        }
+
+        $e = new Chess(Chess::START_FEN);
         foreach ($sans as $san) {
             if ($e->moveSan($san) === null) {
                 throw new RuntimeException("stored move '{$san}' does not replay in game {$game['id']}");
@@ -224,6 +252,13 @@ final class GameState
         $game['fen']   = $engine->fen();
         $game['ply']   = (int)$game['ply'] + 1;
         $game['pgn']   = $engine->pgn();
+        // Keep the games.sans mirror in step with game_moves. save() writes this
+        // column, so leaving it at the value create() seeded it with means every
+        // stored game claims to have no moves at all - and it is a NOT NULL TEXT
+        // column that anything reading the games row alone will believe.
+        $history = $sans;
+        $history[] = $san;
+        $game['sans'] = (string)json_encode(array_values($history), JSON_UNESCAPED_SLASHES);
         $game['turn_started_at_ms'] = $nowMs;
         // the side to move's remaining time, frozen at the moment the clock
         // starts, so the next move can subtract exactly the right interval
@@ -424,14 +459,23 @@ final class GameState
                 'base_ms'      => (int)$game['tc_base_ms'],
                 'increment_ms' => (int)$game['tc_increment_ms'],
             ],
-            'rated'       => (bool)$game['rated'],
+            // 'rated' is not a column on games - every stored game is rated - so
+            // reading it straight off a row read from the table is undefined and
+            // silently false, which showed up as every game in the lobby
+            // labelled unrated. Default it to what the column set implies.
+            'rated'       => (bool)($game['rated'] ?? true),
             'result'      => $result,
             'reason'      => $game['reason'],
             'winner'      => $game['winner_user'] === null ? null : (int)$game['winner_user'],
             'flagged'     => $flagged,
             'clock'       => $clock,
             'now_ms'      => $nowMs,      // so the client can interpolate, not guess
-            'updated_at_ms' => (int)$game['updated_at_ms'],
+            // both spellings, because a row read from the games table carries
+            // updated_ms and a fresh one from create() carries updated_at_ms -
+            // reading only one of them is a silent 0 in the client's freshness
+            // check, which then treats every poll as a new state
+            'updated_at_ms' => (int)($game['updated_at_ms'] ?? $game['updated_ms'] ?? 0),
+            'updated_ms'    => (int)($game['updated_ms'] ?? $game['updated_at_ms'] ?? 0),
         ];
     }
 }

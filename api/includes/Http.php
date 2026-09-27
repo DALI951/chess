@@ -117,14 +117,21 @@ final class Http
         $ceiling = $perMinute + $burst;
 
         return Db::tx(static function () use ($key, $now, $cut, $ceiling): array {
+            // Every placeholder is named separately, even where the value is the
+            // same, because these are NATIVE prepared statements
+            // (EMULATE_PREPARES => false in Db) and MySQL refuses to bind one
+            // named parameter twice in a single statement. With :now and :cut
+            // each written twice this threw SQLSTATE[HY093] "Invalid parameter
+            // number" - which is a 500 on every single rate-limited action:
+            // register, login, create, move, chat, leaderboard, all of it.
             Db::run(
                 'INSERT INTO rate_limits (k, hits, window_start_ms, updated_ms)
-                      VALUES (:k, 1, :now, :now)
+                      VALUES (:k, 1, :now, :now2)
                  ON DUPLICATE KEY UPDATE
                     hits = IF(updated_ms < :cut, 1, hits + 1),
-                    window_start_ms = IF(updated_ms < :cut, VALUES(window_start_ms), window_start_ms),
+                    window_start_ms = IF(updated_ms < :cut2, VALUES(window_start_ms), window_start_ms),
                     updated_ms = VALUES(updated_ms)',
-                ['k' => $key, 'now' => $now, 'cut' => $cut]
+                ['k' => $key, 'now' => $now, 'now2' => $now, 'cut' => $cut, 'cut2' => $cut]
             );
             $row = Db::one('SELECT hits, updated_ms FROM rate_limits WHERE k = :k', ['k' => $key]);
             $hits = (int)($row['hits'] ?? 1);

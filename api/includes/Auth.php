@@ -37,10 +37,11 @@ final class Auth
 
         try {
             $id = Db::tx(static function () use ($username, $displayName, $password) {
+                $now = Db::nowMs();
                 Db::run(
                     'INSERT INTO users (username, display_name, pass_hash, rating, created_ms, last_seen_ms)
-                          VALUES (:u, :d, :h, 1500, :now, :now)',
-                    ['u' => $username, 'd' => $displayName, 'h' => self::hash($password), 'now' => Db::nowMs()]
+                          VALUES (:u, :d, :h, 1500, :now, :now2)',
+                    ['u' => $username, 'd' => $displayName, 'h' => self::hash($password), 'now' => $now, 'now2' => $now]
                 );
                 return (int)Db::conn()->lastInsertId();
             });
@@ -53,7 +54,16 @@ final class Auth
             }
             throw $e;
         }
-        return self::login($id);
+        // Establish the session from the id we just created. This used to call
+        // self::login($id), which is a TypeError under declare(strict_types=1)
+        // - login() wants a username and a password, and was handed an int id.
+        // Registration was a hard 500 on the server and nothing had caught it,
+        // because no test ever called register() against a real database.
+        //
+        // Going straight to establishSession is also the honest thing: there is
+        // no credential to re-verify, and no second SELECT for a row we are
+        // already holding.
+        return self::establishSession($id);
     }
 
     /** @return array<string,mixed> the user row */

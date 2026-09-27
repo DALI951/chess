@@ -49,8 +49,8 @@ final class Chat
         // allowed, talking is not: otherwise chat becomes a stranger's megaphone
         // in a game a stranger was invited to.
         $seated = Db::value(
-            'SELECT 1 FROM games WHERE id = :g AND (white_user = :u OR black_user = :u)',
-            ['g' => $gameId, 'u' => $userId]
+            'SELECT 1 FROM games WHERE id = :g AND (white_user = :u OR black_user = :u2)',
+            ['g' => $gameId, 'u' => $userId, 'u2' => $userId]
         );
         if ($seated === null) {
             throw new HttpError('not_a_player', 'Only the players can talk in this game.', 403);

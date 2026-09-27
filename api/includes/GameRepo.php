@@ -105,7 +105,7 @@ final class GameRepo
                                             turn_started_at_ms, turn_started_ms, created_ms, updated_ms)
                               VALUES (:code, :status, :white, :black, :fen, 0, :sans, :pgn,
                                       :base, :incr, :white_ms, :black_ms,
-                                      :tsat, :tsm, :now, :now)',
+                                      :tsat, :tsm, :now, :now2)',
                         [
                             'code'      => $code,
                             'status'    => $game['status'],
@@ -121,6 +121,7 @@ final class GameRepo
                             'tsat'      => $game['turn_started_at_ms'],
                             'tsm'       => $game['turn_started_ms'],
                             'now'       => Db::nowMs(),
+                            'now2'      => Db::nowMs(),
                         ]
                     );
                     return (int)Db::conn()->lastInsertId();
@@ -140,12 +141,24 @@ final class GameRepo
     }
 
     /**
+    /**
+     * Write the game row back.
+     *
+     * white_user and black_user are part of this UPDATE, and leaving them out
+     * is the single worst bug this file has had. seat() set black_user, flipped
+     * status to active and called save(); save() wrote every column except the
+     * two that record WHO is playing. So the join looked successful, the lobby
+     * showed an active game, and then the second player's own moves came back
+     * not_a_player and their resignation threw "only a player can resign" - the
+     * game was on, in the database, with nobody in it.
+     *
      * @param array<string,mixed> $game
      */
     public static function save(array $game): void
     {
         Db::run(
             'UPDATE games SET status = :status, fen = :fen, ply = :ply, sans = :sans, pgn = :pgn,
+                              white_user = :white_user, black_user = :black_user,
                               white_ms = :white_ms, black_ms = :black_ms,
                               turn_started_at_ms = :tsat, turn_started_ms = :tsm,
                               result = :result, reason = :reason, winner_user = :winner,
@@ -158,6 +171,8 @@ final class GameRepo
                 'ply'       => (int)$game['ply'],
                 'sans'      => $game['sans'],
                 'pgn'       => $game['pgn'],
+                'white_user' => $game['white_user'] === null ? null : (int)$game['white_user'],
+                'black_user' => $game['black_user'] === null ? null : (int)$game['black_user'],
                 'white_ms'  => (int)$game['white_ms'],
                 'black_ms'  => (int)$game['black_ms'],
                 'tsat'      => $game['turn_started_at_ms'],
@@ -206,7 +221,17 @@ final class GameRepo
                 throw new HttpError('no_such_game', 'That game does not exist.', 404);
             }
             $game = self::cast($row);
+            // The move history HAS to come with the move. applyMove() rebuilds
+            // the position from the game's fen plus these SANs, and this fetch
+            // used to sit in a local that nothing ever read - so it was called
+            // with no history and the engine was rebuilt from the STARTING
+            // position on every single move. Which means the turn was always
+            // reported as white: black's first move came back not_your_turn, and
+            // white's second move was rejected as illegal because the engine
+            // still thought it was black's move. One player could play one move
+            // and then the game was stuck forever.
             $sans = self::sans($gameId);
+            $move['sans'] = $sans;
             $result = GameState::applyMove($game, $move, $userId, $now);
 
             if ($result['error'] === 'not_playing' || $result['error'] === 'not_your_turn'
@@ -250,7 +275,16 @@ final class GameRepo
      */
     public static function settleRatings(array $game): void
     {
-        $rated = !empty($game['rated']);
+        // 'rated' is not a column on games. create() sets it and insert() does
+        // not persist it, so on a row read back from the table the key is simply
+        // absent - and !empty() on an absent key is false, which made this
+        // return before doing anything. Every game in the site ended correctly
+        // and moved nobody's rating, and nothing said so.
+        //
+        // So: absent means rated. The table has no column that could say
+        // otherwise, and an unrated game that nobody can express is not a thing
+        // worth having a silent branch for.
+        $rated = array_key_exists('rated', $game) ? (bool)$game['rated'] : true;
         $white = (int)($game['white_user'] ?? 0);
         $black = (int)($game['black_user'] ?? 0);
         // Both seats must be real accounts. A game against a guest, or one that
@@ -288,15 +322,19 @@ final class GameRepo
         $blackGain = (int)round(self::K * ($scoreBlack - $expectedBlack));
 
         $upd = static function (int $userId, int $gain, string $outcome): void {
+            // One placeholder per position, always. These are native prepared
+            // statements, so :o written three times is SQLSTATE[HY093] at run
+            // time - the rating would never update, and every game that ended
+            // would throw after it was already saved.
             Db::run(
                 'UPDATE users
                     SET rating = GREATEST(100, rating + :gain),
                         games_played = games_played + 1,
-                        wins   = wins   + (CASE WHEN :o = \'w\' THEN 1 ELSE 0 END),
-                        draws  = draws  + (CASE WHEN :o = \'d\' THEN 1 ELSE 0 END),
-                        losses = losses + (CASE WHEN :o = \'l\' THEN 1 ELSE 0 END)
+                        wins   = wins   + (CASE WHEN :w = \'w\' THEN 1 ELSE 0 END),
+                        draws  = draws  + (CASE WHEN :d = \'d\' THEN 1 ELSE 0 END),
+                        losses = losses + (CASE WHEN :l = \'l\' THEN 1 ELSE 0 END)
                   WHERE id = :id',
-                ['gain' => $gain, 'o' => $outcome, 'id' => $userId]
+                ['gain' => $gain, 'w' => $outcome, 'd' => $outcome, 'l' => $outcome, 'id' => $userId]
             );
         };
         // GREATEST(100, ...) is a floor, not a rule about the algorithm: Elo is
@@ -327,7 +365,7 @@ final class GameRepo
         $fresh = GameState::endByTimeout($game, $loserColor, $now);
         $st = Db::run(
             'UPDATE games SET status = :status, result = :result, reason = :reason, winner_user = :winner,
-                              turn_started_at_ms = NULL, ended_at_ms = :ended, updated_ms = :ended
+                              turn_started_at_ms = NULL, ended_at_ms = :ended, updated_ms = :ended2
               WHERE id = :id AND status = :active',
             [
                 'status' => $fresh['status'],
@@ -335,6 +373,7 @@ final class GameRepo
                 'reason' => $fresh['reason'],
                 'winner' => $fresh['winner_user'],
                 'ended'  => $now,
+                'ended2' => $now,
                 'id'     => (int)$game['id'],
                 'active' => GameState::ACTIVE,
             ]
@@ -448,7 +487,12 @@ final class GameRepo
             if ($game['black_user'] === $userId) {
                 return ['ok' => true, 'error' => 'already_seated', 'game' => $game];
             }
-            if ($game['white_user'] !== null) {
+            // The seat that is free is BLACK. An open game is created with the
+            // creator already in white and black_user NULL, so checking white
+            // here meant the creator's own presence looked like a full table and
+            // every join was refused with seat_taken - which is to say nobody
+            // could ever join anybody's game, and the only way in was the bug.
+            if ($game['black_user'] !== null) {
                 throw new HttpError('seat_taken', 'Somebody already took that seat.', 409);
             }
             // the challenger is black, and the clock starts NOW: not when the game

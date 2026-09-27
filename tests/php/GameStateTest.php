@@ -110,9 +110,15 @@ check($r['game']['status'] === GameState::ENDED, 'and the game is over', $r['gam
 check($r['game']['winner_user'] === BOB, 'the opponent won', (string)$r['game']['winner_user']);
 check($r['game']['white_ms'] === 0, 'the clock reads zero', (string)$r['game']['white_ms']);
 
+// It used to be faked with sans => ['e4'] on a game whose fen was still the
+// starting array - so the fixture claimed "black to move" in a way the stored
+// position did not agree with. The position is now built by actually playing
+// white's move, which is both honest and closer to what the server does.
 $g = timedGame(60_000, 0);
-$g['turn_started_at_ms'] = 1_000_000; $g['turn_started_ms'] = 200; $g['black_ms'] = 200;
-$r = GameState::applyMove($g, ['from' => 'e7', 'to' => 'e5', 'sans' => ['e4']], BOB, 1_000_400);
+$opened = GameState::applyMove($g, ['from' => 'e2', 'to' => 'e4', 'sans' => []], ALICE, 1_000_000);
+$afterOpen = $opened['game'];
+$afterOpen['turn_started_at_ms'] = 1_000_000; $afterOpen['turn_started_ms'] = 200; $afterOpen['black_ms'] = 200;
+$r = GameState::applyMove($afterOpen, ['from' => 'e7', 'to' => 'e5', 'sans' => ['e4']], BOB, 1_000_400);
 check($r['error'] === 'flag' && $r['game']['result'] === 1, 'black flagging loses', (string)$r['game']['result']);
 
 // exactly zero is still a flag: a player with 0ms left is a player who has lost

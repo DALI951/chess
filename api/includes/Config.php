@@ -35,8 +35,27 @@ final class Config
         if (self::$data !== null) return self::$data;
 
         $candidates = [
-            dirname(__DIR__, 2) . '/config.local.php',   // project root
-            dirname(__DIR__, 3) . '/config.local.php',   // one above the web root
+            // The project root, i.e. /public_html/chess. This is where the file
+            // has to live on this host: the SFTP account is chrooted to
+            // public_html, so there is nowhere above it to write. It is still
+            // safe, because the .htaccess sitting next to it denies this exact
+            // filename - and Apache applies that deny to the request path, so
+            // the answer is 403 whether or not the file exists.
+            dirname(__DIR__, 2) . '/config.local.php',
+
+            // The account home, which on a host that does not chroot SFTP is
+            // genuinely outside the document root:
+            //   /var/www/modali/public_html/chess/api/includes
+            //   4 up -> /var/www/modali          <- not served by Apache
+            //
+            // This line used to say dirname(__DIR__, 3), commented "one above
+            // the web root". 3 up is /public_html, and public_html IS the web
+            // root - so a config file written there answered
+            // https://modali.powerpme.com/config.local.php. PHP executed it so
+            // the body came back empty, but the database password was sitting
+            // in the document root, one misconfigured handler away from being
+            // served as text. Being a directory higher is the whole point.
+            dirname(__DIR__, 4) . '/config.local.php',
         ];
         $file = null;
         foreach ($candidates as $c) {

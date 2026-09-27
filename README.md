@@ -94,12 +94,32 @@ add a build step and a dependency tree to ship maybe 200 lines of logic.
 
 ## Deployment
 
-Target: `https://modali.powerpme.com/chess` on the existing shared host.
+**It is live: https://modali.powerpme.com/chess/**
 
-- Copy the site to `/public_html/chess/`, keeping `api/` reachable and `config.local.php` **outside** the web root.
-- `config.example.php` documents every setting. Copy it to `config.local.php` and fill it in. **Never commit the real one** — it is gitignored.
-- MySQL's external port is firewalled on that host, so the schema must be created by a one-shot PHP installer run on the server, not from your PC. `config.example.php` has a `setup_token` guard for exactly that.
-- Guests can play casual with no account at all, so the site is useful before the database exists.
+```bash
+python scripts/deploy.py            # needs CHESS_SFTP_PASS or scripts/credentials.local.json
+python scripts/deploy.py --dry-run  # list what would go up, touch nothing
+```
+
+The script wipes and re-uploads **only** `/public_html/chess`; the other sites
+sharing that host are not touched. No password is stored in the repository.
+
+Things that will bite you otherwise:
+
+- **Connect to `modali.powerpme.com`, not the bare IP.** `212.227.215.235`
+  rejects the same credentials that work on the hostname, which looks exactly
+  like a wrong password.
+- **`public_html` is the web root.** `config.local.php` goes to
+  `/public_html/chess/config.local.php`, never to `public_html/`, where it would
+  answer a public URL. The app's `.htaccess` denies that filename, and the
+  SFTP account is chrooted to `public_html` so there is nowhere higher to write.
+- **MySQL's external port is firewalled on that host**, so the schema has to be
+  created by the one-shot PHP installer on the server itself, not from your PC.
+  `python scripts/run-setup.py` unlocks it, posts the token, and locks it again.
+- `config.example.php` documents every setting. **Never commit the real one** —
+  it is gitignored, as is `scripts/credentials.local.json`.
+- Guests can play casual with no account at all, so the site is useful before the
+  database exists.
 
 ## Roadmap
 
