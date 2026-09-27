@@ -169,12 +169,17 @@ if (chrome) {
   const small = await page.evaluate(() => {
     const MIN = 40;   // 44 is the guideline; 40 is the floor for a dense toolbar
     const bad = [];
-    for (const el of document.querySelectorAll('button, select, a.nav-link, input, textarea')) {
-      if (el.offsetParent === null) continue;         // hidden tab panes
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
-      if (r.height < MIN) bad.push(`${el.tagName}.${el.className || el.id}=${Math.round(r.width)}x${Math.round(r.height)}`);
-    }
+      for (const el of document.querySelectorAll('button, select, a.nav-link, input, textarea')) {
+        if (el.offsetParent === null) continue;         // hidden tab panes
+        // A checkbox inside its own <label> is tapped by clicking the label, so
+        // the label is the target and the little box is only the picture of it.
+        // Measuring the input would be measuring the wrong rectangle.
+        const isBox = el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio');
+        const target = isBox ? (el.closest('label') || el) : el;
+        const r = target.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        if (r.height < MIN) bad.push(`${target.tagName}.${target.className || target.id}=${Math.round(r.width)}x${Math.round(r.height)}`);
+      }
     return bad;
   });
   check(small.length === 0, 'every visible control is at least 40px tall', small.join(' | '));

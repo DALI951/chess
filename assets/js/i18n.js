@@ -49,6 +49,12 @@ export const STRINGS = {
     authRemember: 'أبقني مسجّلًا', btnLogin: 'دخول', btnRegister: 'حساب جديد', btnLogout: 'تسجيل الخروج',
     authWrong: 'اسم المستخدم أو كلمة المرور غير صحيحة', authFailed: 'تعذّر إتمام العملية',
     authFillBoth: 'اكتب اسم المستخدم وكلمة المرور',
+    // the front door
+    gateTitle: 'شطرنجي',
+    gateSub: 'ضد الحاسوب، أو ضد شخص حقيقي عبر الإنترنت.',
+    gateOffline: 'العب بدون حساب',
+    // the switch on the login card: what you are reading, and what you could switch to
+    langNow: 'العربية', langTo: 'English',
     footTag: 'محرك القواعد مُختبَر بـ ٦٨ مليون عقدة، و PHP يطابقه حرفًا بحرف.',
     you: 'أنت', engine: 'الحاسوب', white: 'أبيض', black: 'أسود',
     thinking: 'يفكّر…', yourTurn: 'دورك', opponentTurn: 'دور الخصم',
@@ -114,6 +120,11 @@ export const STRINGS = {
     authRemember: 'Keep me signed in', btnLogin: 'Log in', btnRegister: 'Sign up', btnLogout: 'Log out',
     authWrong: 'Wrong username or password', authFailed: 'That did not work',
     authFillBoth: 'Enter a username and a password',
+    // the front door
+    gateTitle: 'SHATRANGI',
+    gateSub: 'Play the computer, or play a real person online.',
+    gateOffline: 'Play without an account',
+    langNow: 'English', langTo: 'العربية',
     footTag: 'Rules engine proven over 68M nodes, matched move-for-move by PHP.',
     you: 'You', engine: 'Computer', white: 'White', black: 'Black',
     thinking: 'Thinking…', yourTurn: 'Your move', opponentTurn: 'Opponent to move',

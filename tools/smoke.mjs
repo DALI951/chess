@@ -67,6 +67,75 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 
 await page.goto(URL_, { waitUntil: 'networkidle' });
 
+// -- the front door -----------------------------------------------------------
+// Signing in is the first thing on the site now, so every run of this suite
+// walks through it exactly as a first-time player does: the gate is up, and
+// "play without an account" is how you get to the board. A suite that skipped
+// it by fiat would never notice the gate eating every click on the page.
+check(await page.locator('#gate').isVisible(), 'the gate is the first thing on the site');
+check(await page.locator('#authName').isVisible(), 'and it asks for a username');
+check(await page.locator('#authPass').isVisible(), 'and a password');
+check(await page.locator('#authRegisterBtn').isVisible(), 'and offers an account');
+check(await page.locator('#gateOffline').isVisible(), 'and a way in without one');
+{
+  // while it is up, it must actually be in the way: a gate that is transparent
+  // to clicks is the bug the [hidden] rule in the stylesheet exists to prevent
+  const blocked = await page.evaluate(() => {
+    const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return !!el?.closest('#gate');
+  });
+  check(blocked, 'and it is really in the way, not just painted over the page');
+}
+{
+  // The gate covers the header, so the header's language toggle is underneath it
+  // and unclickable. A bilingual site whose login card is the first screen still
+  // has to be switchable from that screen, so the card carries its own switch -
+  // and the header's being unreachable is the reason it has to.
+  const headerUnderGate = await page.evaluate(() => {
+    const t = document.querySelector('#langToggle');
+    if (!t) return 'no header toggle';
+    const r = t.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit?.closest('#gate') ? 'covered' : 'reachable';
+  });
+  check(headerUnderGate === 'covered', 'the header language toggle is unreachable behind the gate', headerUnderGate);
+  check(await page.locator('#gateLangBtn').isVisible(), 'so the login card carries a language switch of its own');
+
+  await page.locator('#gateLangBtn').click();
+  const afterSwitch = await page.evaluate(() => ({
+    lang: document.documentElement.lang,
+    dir: document.documentElement.dir,
+    title: document.querySelector('#gateTitle')?.textContent?.trim(),
+  }));
+  check(afterSwitch.lang === 'en' && afterSwitch.dir === 'ltr',
+    'and it actually switches the login card to English and LTR',
+    `${afterSwitch.lang}/${afterSwitch.dir} "${afterSwitch.title}"`);
+  check(afterSwitch.title === 'SHATRANGI', 'and the card is translated, not just re-directed', afterSwitch.title);
+  await page.locator('#gateLangBtn').click();
+  const backToAr = await page.evaluate(() => document.documentElement.lang);
+  check(backToAr === 'ar', 'and switches back', backToAr);
+}
+await page.locator('#gateOffline').click();
+await page.waitForSelector('#gate', { state: 'hidden' });
+check(!(await page.locator('#gate').isVisible()), 'the offline escape gets you in');
+check(await page.locator('#board .sq').first().isVisible(), 'and the board is reachable');
+
+/**
+ * Online mode needs an account, so picking it without one puts the front door
+ * back up. This suite has no real account - it fakes the API - so it backs out
+ * the same way a player without an account would. Checking it comes back is the
+ * point: the gate has to appear at the moment an account becomes necessary, and
+ * it has to stay possible to dismiss.
+ */
+const dismissGateIfUp = async () => {
+  if (await page.locator('#gate').isVisible().catch(() => false)) {
+    await page.locator('#gateOffline').click();
+    await page.waitForSelector('#gate', { state: 'hidden' });
+    return true;
+  }
+  return false;
+};
+
 // -- shell --------------------------------------------------------------------
 check(await page.locator('#board .sq').count() === 64, 'the board rendered 64 squares');
 check(await page.locator('#board .piece').count() === 32, 'all 32 pieces are on the board');
@@ -80,7 +149,13 @@ check(await page.locator('#board .coord.rank').first().textContent() === '1', 't
 // real SVG art, not a Unicode character in a <text> node
 check(await page.locator('#board .piece path').count() === 32, 'all 32 pieces are drawn as SVG paths');
 check(await page.locator('#board .piece text').count() === 0, 'no piece is a font glyph any more');
-check((await page.locator('.brand-mark .mark-a').count()) === 1, 'the brand mark is drawn');
+// The front door has its own, larger mark, so there is more than one of them now.
+// What matters is that EVERY mark is real SVG art and not a Unicode character in
+// a <text> node - a count of exactly one was incidental.
+const marks = page.locator('.brand-mark');
+check(await marks.count() >= 1, 'the brand mark is drawn');
+check(await page.locator('.brand-mark .mark-a').count() === await marks.count(),
+  'every brand mark is a drawn path, in the header and on the front door');
 check((await page.locator('#brandName').textContent()).length > 0, 'the wordmark is there');
 
 /** The DOM cell showing a square, when White is at the bottom. */
@@ -375,6 +450,27 @@ if (SHOTS) {
   await page.screenshot({ path: join(dir, 'phone-en.png'), fullPage: true });
   await page.locator('#langToggle').click();
   await page.screenshot({ path: join(dir, 'phone-ar.png'), fullPage: true });
+
+  // The front door gets its own browser, because by this point this one has
+  // already walked through the gate and said no to it. A fresh context has
+  // fresh storage, so the login card is up on arrival - which is the thing worth
+  // photographing, since it is the first thing anybody sees.
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const door = await fresh.newPage();
+  await door.goto(URL_, { waitUntil: 'networkidle' });
+  await door.waitForSelector('#gate:not([hidden])');
+  await door.waitForTimeout(400);
+  await door.screenshot({ path: join(dir, 'gate-ar.png') });
+  // The gate's own switch, not the header's: the gate covers the header, so the
+  // header toggle cannot be clicked from here - which is the whole reason the
+  // gate carries a switch of its own.
+  await door.locator('#gateLangBtn').click();
+  await door.screenshot({ path: join(dir, 'gate-en.png') });
+  await door.setViewportSize({ width: 390, height: 844 });
+  await door.screenshot({ path: join(dir, 'gate-phone-en.png'), fullPage: true });
+  await door.locator('#gateLangBtn').click();
+  await door.screenshot({ path: join(dir, 'gate-phone-ar.png'), fullPage: true });
+  await fresh.close();
   console.log('  shots -> tools/shots/');
 }
 
@@ -493,6 +589,9 @@ await page.evaluate(() => {
 });
 
 await page.locator('#mode').selectOption('online');
+check(await page.locator('#gate').isVisible(),
+  'picking online without an account puts the front door back up');
+check(await dismissGateIfUp(), 'and the offline escape still works from there');
 await page.locator('#onlineCreate').click();
 await page.waitForFunction(() => window.__online?.isOnline?.() === true, null, { timeout: 10000 });
 check(true, 'a room can be opened');

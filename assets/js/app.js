@@ -812,6 +812,11 @@ $('mode').onchange = (ev) => {
   // reverse - leaving online - goes through leaveOnline(), which is the only
   // function that stops the polling.
   if (S.mode !== 'online' && online.isOnline()) leaveOnline();
+  // Online is the one mode that genuinely needs an account, so choosing it
+  // without one puts the front door back up - including for somebody who had
+  // already skipped past it to play the computer. gateForced keeps that separate
+  // from the skip choice, so the offline button still works from here.
+  if (S.mode === 'online' && !online.user()) gateForced = true;
   paintOnlinePanel();
   paintAuth();
   if (S.mode !== 'online') newGame();
@@ -884,12 +889,19 @@ for (const tab of document.querySelectorAll('.tab')) {
   };
 }
 
-$('langToggle').onclick = () => {
+/** One place decides what language the app is in, so the header switch and the
+ *  one on the login card can never drift apart. The gate has its own copy
+ *  because it covers the header, and a language you cannot change on the screen
+ *  you are looking at is a language you cannot change at all. */
+function toggleLang() {
   S.lang = S.lang === 'ar' ? 'en' : 'ar';
   applyLang(S.lang);
   render();
   paintBars();
-};
+}
+
+$('langToggle').onclick = toggleLang;
+$('gateLangBtn')?.addEventListener('click', toggleLang);
 
 // ── the account ─────────────────────────────────────────────────────────────
 
@@ -901,14 +913,17 @@ $('langToggle').onclick = () => {
 function paintAuth() {
   const panel = $('authPanel');
   if (!panel) return;
-  panel.hidden = S.mode !== 'online';
   const u = online.user();
+  // The account FORM is the front door now, not a panel inside a tab, so what is
+  // left in here is only the signed-in state: who you are, and a way out.
+  panel.hidden = S.mode !== 'online' || !u;
   $('authForm').hidden = !!u;
   $('authWho').hidden = !u;
   $('authLogoutBtn').hidden = !u;
   if (u) {
     $('authWho').textContent = `${u.display_name || u.username} · ${u.rating ?? '—'}`;
   }
+  paintGate();
 }
 
 function authMessage(key, fallback) {
@@ -935,6 +950,7 @@ async function authSubmit(ev, isRegister) {
       authMessage('');
     }
     $('authPass').value = '';
+    rememberSignedIn();
     paintAuth();
     paintOnlinePanel();
   } catch (err) {
@@ -946,12 +962,98 @@ async function authSubmit(ev, isRegister) {
   }
 }
 
+// ── the front door ──────────────────────────────────────────────────────────
+/**
+ * Signing in is the first thing on the site. The gate is in the markup with no
+ * `hidden`, so it is up from the very first paint and a signed-in player never
+ * sees a flash of it: it comes down once the session check answers, in
+ * paintGate() below, which every path into "we know who you are" goes through.
+ *
+ * The offline escape is not a consolation prize. A game against the computer
+ * needs no account and no database, and the whole board is built to keep
+ * working when the API is unreachable - so a dead database must never be the
+ * reason somebody cannot play. Choosing it remembers the choice, because
+ * asking again on every single visit is how you talk someone out of signing up.
+ */
+const GATE_SKIP_KEY = 'chess.gateSkipped';
+
+// Set the moment this browser holds a session, and read by the <head> script
+// before the first paint. It is a hint, not the truth: it decides whether the
+// login card is allowed to paint, and the server still decides whether it does.
+// A hint that is wrong costs one late login card; no hint at all costs every
+// signed-in player a red flash on every single visit.
+const SIGNED_IN_KEY = 'chess.wasSignedIn';
+
+function rememberSignedIn() {
+  try { localStorage.setItem(SIGNED_IN_KEY, '1'); } catch { /* private mode: ask again next time */ }
+}
+
+function forgetSignedIn() {
+  try { localStorage.removeItem(SIGNED_IN_KEY); } catch { /* nothing to do */ }
+}
+
+// Set when the gate is up because something NEEDS an account rather than because
+// we have not asked yet. It has to be separate from the skip flag: choosing
+// "play without an account" and then picking online mode is not a contradiction
+// to be resolved by hiding the gate again, it is a change of mind about needing
+// one - so the gate comes back, and stays dismissable.
+let gateForced = false;
+
+function gateSkipped() {
+  try { return localStorage.getItem(GATE_SKIP_KEY) === '1'; } catch { return false; }
+}
+
+function skipGate() {
+  gateForced = false;
+  try { localStorage.setItem(GATE_SKIP_KEY, '1'); } catch { /* private mode: ask again */ }
+  dismissGate();
+}
+
+function dismissGate() {
+  const gate = $('gate');
+  if (!gate) return;
+  gate.hidden = true;
+  document.body.classList.remove('is-gated');
+  // Release the <head> hold too, otherwise the next showGate() would be undone
+  // by a stylesheet rule that has no idea the session changed.
+  document.documentElement.classList.remove('gate-held');
+}
+
+function showGate() {
+  const gate = $('gate');
+  if (!gate) return;
+  document.documentElement.classList.remove('gate-held');
+  gate.hidden = false;
+  document.body.classList.add('is-gated');
+  $('authHint').textContent = '';
+  $('authName')?.focus();
+}
+
+function paintGate() {
+  const gate = $('gate');
+  if (!gate) return;
+  if (online.user()) { gateForced = false; dismissGate(); }
+  else if (!gateForced && gateSkipped()) dismissGate();
+  else showGate();
+}
+
 function wireAuth() {
   $('authForm').onsubmit = (ev) => authSubmit(ev, false);
   $('authRegisterBtn').onclick = (ev) => authSubmit(ev, true);
+  $('gateOffline')?.addEventListener('click', skipGate);
   $('authLogoutBtn').onclick = async () => {
     try { await online.logout(); }
-    finally { paintAuth(); paintOnlinePanel(); newGame(); }
+    finally {
+      // Signing out is a decision to go back to being a stranger, so it puts
+      // the front door back up rather than dropping you straight into a game you
+      // can no longer save, rate, or share. It also drops the hint, so the gate
+      // comes up instantly next time instead of waiting to be told.
+      forgetSignedIn();
+      paintAuth();
+      paintOnlinePanel();
+      newGame();
+      showGate();
+    }
   };
 }
 
@@ -1170,7 +1272,15 @@ newGame();
 // Ask the server who we are, once. Deliberately not awaited before the board is
 // drawn: the local game has to be playable the instant the page loads, with or
 // without a database, and a slow login check must not hold up a board.
-online.loadSession().then(() => { paintAuth(); paintOnlinePanel(); });
+  online.loadSession().then(() => {
+    // The <head> script held the gate back only because this browser looked like
+    // it had a session. Now the server has answered, so the hint is either
+    // confirmed - in which case it is refreshed for next time - or it was wrong,
+    // and paintAuth() puts the login card up, late but not as a flash.
+    if (online.user()) rememberSignedIn(); else forgetSignedIn();
+    paintAuth();
+    paintOnlinePanel();
+  });
 // A #g=CODE in the URL is an invitation. Landing on one opens it, and if this
 // browser is not logged in the panel says so instead of failing silently.
 function openInvite(code) {

@@ -5,13 +5,106 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>شطرنجي — الشطرنج عبر الإنترنت</title>
 <meta name="description" content="العب الشطرنج ضد الحاسوب أو ضد لاعبين حقيقيين. بالعربية والإنجليزية.">
-<meta name="theme-color" content="#0a0a0c">
+<meta name="theme-color" content="#08080a">
 <link rel="stylesheet" href="assets/css/style.css?v=ASSETSTAMP">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 1.5 21 11 30.5 16 21 21 16 30.5 11 21 1.5 16 11 11Z' fill='%23e11d2e'/%3E%3Cpath d='M7.4 7.4H24.6V24.6H7.4Z' fill='none' stroke='%23e11d2e' stroke-width='2.4'/%3E%3C/svg%3E">
+<script>
+/* The login card is the first thing in the markup, so it is on screen for
+   everybody the instant the page exists. That is the right first impression for
+   somebody who has never signed in, and the wrong one for somebody who already
+   has: they get a red login card thrown in their face while a session check
+   they cannot see is still in flight.
+
+   So the only thing that can be known before the first paint is whether this
+   browser has ever held a session. If it has, hold the gate back and let the
+   real answer decide. If it has not, the gate goes up immediately, because
+   waiting on a network round trip to offer somebody a login form is a worse
+   first impression than the flash we are avoiding.
+
+   This has to run here, in <head>, and not from the module: a deferred module
+   runs after the document is parsed, and by then the gate has been painted. */
+(function () {
+  try {
+    if (localStorage.getItem('chess.wasSignedIn') === '1')
+      document.documentElement.classList.add('gate-held');
+  } catch (e) { /* private mode: no hint, so the gate goes up, which is safe */ }
+})();
+</script>
 </head>
-<body>
+<body class="is-gated">
 
 <a class="skip" href="#board-wrap" data-i18n="skipToBoard">تخطَّ إلى الرقعة</a>
+
+<!-- ── the front door ───────────────────────────────────────────────────────
+     Signing in is the FIRST thing on the site, not a panel buried in a tab
+     that only exists in online mode. It has to be the first thing because
+     almost everything worth doing here - an account, a rating, a game that is
+     still there tomorrow - needs one, and a game against the computer is the
+     exception rather than the rule.
+
+     The form keeps its original ids. wireAuth() binds to them, the UI suite
+     fills them, and the live browser test registers through them; relocating
+     the markup must not mean rewriting the wiring.
+
+     It is shown by default in the markup and removed by app.js once the
+     session check answers, so an already-signed-in player never sees it flash.
+     The offline escape is not a consolation prize: a database that is down
+     must not stop somebody playing the computer.
+     ──────────────────────────────────────────────────────────────────────── -->
+<div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+  <div class="gate-bg" aria-hidden="true"></div>
+
+  <div class="gate-card">
+    <!-- The gate covers the whole screen, which means the header's language
+         toggle is underneath it and cannot be reached. A bilingual site whose
+         login card is the first screen has to be able to change language ON the
+         login card, so it carries its own switch. -->
+    <div class="gate-lang">
+      <button class="gate-lang-btn" type="button" id="gateLangBtn">
+        <span class="gate-lang-now" data-i18n="langNow">العربية</span>
+        <span class="gate-lang-to" data-i18n="langTo">English</span>
+      </button>
+    </div>
+
+    <div class="gate-brand">
+      <span class="brand-mark brand-mark-lg" aria-hidden="true">
+        <svg viewBox="0 0 32 32" focusable="false">
+          <path class="mark-a" d="M16 1.5 21 11 30.5 16 21 21 16 30.5 11 21 1.5 16 11 11Z"/>
+          <path class="mark-b" d="M7.4 7.4H24.6V24.6H7.4Z"/>
+        </svg>
+      </span>
+      <h1 class="gate-title" id="gateTitle" data-i18n="gateTitle">شطرنجي</h1>
+      <p class="gate-sub" data-i18n="gateSub">ضد الحاسوب، أو ضد شخص حقيقي عبر الإنترنت.</p>
+    </div>
+
+    <form id="authForm" autocomplete="on">
+      <div class="field">
+        <label for="authName" data-i18n="authUser">اسم المستخدم</label>
+        <input id="authName" name="username" autocomplete="username" minlength="3" maxlength="24" dir="ltr" required>
+      </div>
+      <div class="field" id="authDisplayField">
+        <label for="authDisplay" data-i18n="authDisplay">الاسم الظاهر</label>
+        <input id="authDisplay" name="nickname" maxlength="32">
+      </div>
+      <div class="field">
+        <label for="authPass" data-i18n="authPass">كلمة المرور</label>
+        <input id="authPass" name="password" type="password" autocomplete="current-password" minlength="8" required>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="authRemember"> <span data-i18n="authRemember">أبقني مسجّلًا</span>
+      </label>
+
+      <p class="hint" id="authHint" role="status" aria-live="polite"></p>
+
+      <div class="gate-actions">
+        <button class="btn btn-primary btn-block" type="submit" id="authLoginBtn" data-i18n="btnLogin">دخول</button>
+        <button class="btn btn-block" type="button" id="authRegisterBtn" data-i18n="btnRegister">حساب جديد</button>
+      </div>
+    </form>
+
+    <button class="gate-offline" id="gateOffline" type="button" data-i18n="gateOffline">العب بدون حساب</button>
+  </div>
+</div>
 
 <header class="top">
   <div class="brand">
@@ -48,17 +141,15 @@
   <section class="board-col">
 
     <div class="player" id="playerTop">
-      <div class="player-id">
-        <span class="avatar" id="topAvatar">♞</span>
-        <span class="player-meta">
-          <span class="player-name" id="topName">—</span>
-          <span class="player-sub" id="topSub"></span>
-        </span>
+      <span class="avatar" id="topAvatar">?</span>
+      <div class="player-meta">
+        <span class="player-name" id="topName">-</span>
+        <span class="player-sub" id="topSub"></span>
       </div>
-      <div class="player-right">
+      <span class="player-right">
         <span class="captured" id="topCaptured"></span>
         <span class="clock" id="topClock">10:00</span>
-      </div>
+      </span>
     </div>
 
     <div class="board-wrap" id="board-wrap">
@@ -73,18 +164,17 @@
     </div>
 
     <div class="player player-bottom" id="playerBottom">
-      <div class="player-id">
-        <span class="avatar" id="botAvatar">♟</span>
-        <span class="player-meta">
-          <span class="player-name" id="botName">—</span>
-          <span class="player-sub" id="botSub"></span>
-        </span>
+      <span class="avatar" id="botAvatar">?</span>
+      <div class="player-meta">
+        <span class="player-name" id="botName">-</span>
+        <span class="player-sub" id="botSub"></span>
       </div>
-      <div class="player-right">
+      <span class="player-right">
         <span class="captured" id="botCaptured"></span>
         <span class="clock" id="botClock">10:00</span>
-      </div>
+      </span>
     </div>
+
   </section>
 
   <!-- ── side panel ─────────────────────────────────────────────── -->
@@ -145,17 +235,15 @@
       </div>
 
       <div class="field" id="colorField">
-        <span class="label" data-i18n="lblColor">ألوانك</span>
+        <label data-i18n="lblColor">لونك</label>
         <div class="seg seg-wide" role="group">
-          <button class="seg-btn is-on" data-color="w" data-i18n="colorWhite">أبيض</button>
-          <button class="seg-btn" data-color="b" data-i18n="colorBlack">أسود</button>
-          <button class="seg-btn" data-color="r" data-i18n="colorRandom">عشوائي</button>
+          <button class="seg-btn is-on" data-color="w" data-i18n="white">أبيض</button>
+          <button class="seg-btn" data-color="b" data-i18n="black">أسود</button>
+          <button class="seg-btn" data-color="r" data-i18n="random">عشوائي</button>
         </div>
       </div>
 
-      <div class="btn-row">
-        <button class="btn btn-primary" id="newGame" data-i18n="btnNewGame">لعبة جديدة</button>
-      </div>
+      <button class="btn btn-primary btn-block" id="newGame" data-i18n="btnNewGame">لعبة جديدة</button>
 
       <div class="btn-row btn-row-3">
         <button class="btn" id="undoBtn" data-i18n="btnUndo">تراجع</button>
@@ -163,34 +251,10 @@
         <button class="btn btn-danger" id="resignBtn" data-i18n="btnResign">استسلام</button>
       </div>
 
-      <!-- account: needed for online, and irrelevant to a game against the
-           computer, so it only appears in online mode -->
+      <!-- account: the form now lives on the front door, so what is left in the
+           game is the two things you need once you are already playing. -->
       <section class="online" id="authPanel" hidden>
         <p class="hint" id="authWho" hidden></p>
-
-        <form id="authForm" autocomplete="on">
-          <div class="field">
-            <label for="authName" data-i18n="authUser">اسم المستخدم</label>
-            <input id="authName" name="username" autocomplete="username" minlength="3" maxlength="24" dir="ltr" required>
-          </div>
-          <div class="field" id="authDisplayField">
-            <label for="authDisplay" data-i18n="authDisplay">الاسم الظاهر</label>
-            <input id="authDisplay" name="nickname" maxlength="32">
-          </div>
-          <div class="field">
-            <label for="authPass" data-i18n="authPass">كلمة المرور</label>
-            <input id="authPass" name="password" type="password" autocomplete="current-password" minlength="8" required>
-          </div>
-          <label class="check">
-            <input type="checkbox" id="authRemember"> <span data-i18n="authRemember">أبقني مسجّلًا</span>
-          </label>
-          <p class="hint" id="authHint"></p>
-          <div class="btn-row btn-row-2">
-            <button class="btn btn-primary" type="submit" id="authLoginBtn" data-i18n="btnLogin">دخول</button>
-            <button class="btn" type="button" id="authRegisterBtn" data-i18n="btnRegister">حساب جديد</button>
-          </div>
-        </form>
-
         <button class="btn btn-ghost" id="authLogoutBtn" hidden data-i18n="btnLogout">خروج</button>
       </section>
 

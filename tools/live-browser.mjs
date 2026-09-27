@@ -91,16 +91,19 @@ const sitsBlack = (page) => page.evaluate(() => window.__online?.myColor?.() ===
 async function signUp(page, tag) {
   const user = `probe_br${tag}_${stamp}`;
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  // The account panel is .online and hidden: it only exists in online mode, which
-  // is the #mode select. This is the first thing that trips a new browser test -
-  // the element is in the DOM, present and fillable-looking, and invisible.
-  await page.selectOption('#mode', 'online');
-  await page.waitForSelector('#authPanel:not([hidden])', { timeout: 20000 });
+  // Registering through the front door, which is where the form lives now. This
+  // used to mean: switch #mode to online, wait for a panel that only appears in
+  // online mode, fill a form nested three levels deep. Now it is the first
+  // screen, so the test exercises the same path a real player takes.
+  await page.waitForSelector('#gate:not([hidden])', { timeout: 20000 });
   await page.fill('#authName', user);
   await page.fill('#authPass', 'browserpass123');
   const display = page.locator('#authDisplayField input');
   if (await display.count()) await display.fill(`BR ${tag}`);
   await page.click('#authRegisterBtn');
+  // The gate comes down by itself once the account exists.
+  await page.waitForSelector('#gate', { state: 'hidden', timeout: 25000 });
+  await page.selectOption('#mode', 'online');
   await page.waitForSelector('#onlineSetup:not([hidden])', { timeout: 25000 });
   await page.waitForTimeout(800);
   return user;
