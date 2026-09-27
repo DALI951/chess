@@ -204,6 +204,31 @@ await sq('a7').click();
 await sq('a8').click();
 check((await page.locator('.promo').count()) === 1, 'the promotion picker opens');
 check((await page.locator('.promo button').count()) === 4, 'it offers queen, rook, bishop, knight');
+// The four buttons existing is not the same as the four buttons being
+// DIFFERENT. They were all drawn as a queen once, because the engine returns
+// "Q" and the glyph table was keyed by "q" - so this has to check the labels.
+const glyphs = await page.locator('.promo button').evaluateAll(
+  (bs) => bs.map((b) => b.textContent));
+check(new Set(glyphs).size === 4, `the four choices look different: ${glyphs.join(' ')}`);
+const labels = await page.locator('.promo button').evaluateAll(
+  (bs) => bs.map((b) => b.getAttribute('aria-label')));
+check(new Set(labels).size === 4, `each choice is named: ${labels.join(' ')}`);
+// and each one must actually promote to what its glyph claims.
+// A rook on a8 does check the king on e8 down the eighth rank; a bishop on a8
+// (a8-b7-c6...) and a knight on a8 (b6, c7) do not, so those two SANs carry no
+// "+". Written out rather than assumed, because assuming is what hid the bug.
+for (const [i, san] of [[1, 'a8=R+'], [2, 'a8=B'], [3, 'a8=N']]) {
+  await loadFen('4k3/P7/8/8/8/8/8/4K3 w - - 0 1');
+  await sq('a7').click();
+  await sq('a8').click();
+  await page.locator('.promo button').nth(i).click();
+  check((await page.locator('#moveList .m').first().textContent()) === san,
+    `picking option ${i + 1} really plays ${san}`,
+    await page.locator('#moveList .m').first().textContent());
+}
+await loadFen('4k3/P7/8/8/8/8/8/4K3 w - - 0 1');
+await sq('a7').click();
+await sq('a8').click();
 await page.locator('.promo button').first().click();
 check((await sq('a8').locator('.piece').count()) === 1, 'the promotion lands on a8');
 check((await page.locator('#moveList .m').first().textContent()) === 'a8=Q+', 'it is written as a8=Q+');

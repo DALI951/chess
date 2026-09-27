@@ -269,12 +269,20 @@ function askPromotion(from, to, legal) {
   box.className = 'promo';
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-label', t(S.lang, 'promoTitle'));
+  // The engine hands back promotion as an UPPER-CASE letter ("Q", "R", "B", "N")
+  // from moves(). Keying this table by lower case meant order["Q"] was undefined,
+  // every button fell through to the '?' fallback, and all four choices were
+  // drawn as a queen. The moves were correct the whole time - only the four
+  // buttons looked identical, which is the worst kind of bug: the game worked
+  // and the picker quietly lied about what you were picking.
   const order = { q: '♕', r: '♖', b: '♗', n: '♘' };
   for (const mv of legal) {
+    const piece = String(mv.promotion || '').toLowerCase();
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = order[mv.promotion] || '♕';
-    btn.setAttribute('aria-label', mv.promotion.toUpperCase());
+    btn.dataset.promotion = piece;
+    btn.textContent = order[piece] || '♕';
+    btn.setAttribute('aria-label', piece.toUpperCase() || 'QUEEN');
     btn.onclick = () => {
       box.remove();
       document.removeEventListener('keydown', onKey);
@@ -1035,6 +1043,24 @@ function wireOnlinePanel() {
       newGame();
     });
   }
+  const quick = $('onlineQuick');
+  if (quick) {
+    quick.onclick = () => withBusy(async () => {
+      const [b, i] = ($('timeControl').value || '600+0').split('+').map(Number);
+      // matched === false is not an error: the server found nobody waiting, so
+      // it put us in an open game and we sit in it. Polling brings the
+      // opponent in, and the panel already says "waiting".
+      const matched = await online.quickMatch({
+        baseMs: (b || 0) * 1000,
+        incrementMs: (i || 0) * 1000,
+      });
+      const code = online.game().code;
+      history.replaceState(null, '', `#g=${code}`);
+      $('boardVeil').hidden = true;
+      newGame();
+      if (!matched) $('onlineHint').textContent = t(S.lang, 'onlineQuickWaiting');
+    });
+  }
   const leave = $('onlineLeave');
   if (leave) leave.onclick = () => { history.replaceState(null, '', location.pathname); leaveOnline(); };
 
@@ -1055,6 +1081,29 @@ function wireOnlinePanel() {
 
   const copyBtn = $('onlineCopy');
   if (copyBtn) copyBtn.onclick = () => copy($('onlineLink').value, copyBtn);
+  const shareBtn = $('onlineShare');
+  if (shareBtn) {
+    shareBtn.onclick = async () => {
+      const url = $('onlineLink').value;
+      const me = online.user();
+      const text = t(S.lang, 'onlineShareText')
+        .replace('{name}', me?.display_name || t(S.lang, 'onlineRoom'))
+        .replace('{url}', url);
+      // On a phone this opens the system share sheet, which is the difference
+      // between "here is a link, now go and paste it somewhere" and one tap into
+      // WhatsApp. navigator.share is absent on desktop browsers and in some
+      // embedded webviews, hence the copy fallback rather than an error.
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: t(S.lang, 'appTitle'), text, url });
+          return;
+        } catch (e) {
+          if (e && e.name === 'AbortError') return;   // they closed the sheet
+        }
+      }
+      copy(url, shareBtn);
+    };
+  }
 
   const chatForm = $('chatForm');
   if (chatForm) {

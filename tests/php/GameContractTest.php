@@ -132,6 +132,58 @@ check(
 );
 check((bool)preg_match('/\bblack_user\b/', $settleBody), 'settleRatings reads black_user, so a seated game rates');
 
+group('matchmaking reads the open games as the queue');
+
+// Matchmaking has no table of its own: an open game IS somebody waiting, so the
+// contract to hold is that the query only ever offers games which can actually
+// be seated in - waiting, black seat free, not yours, same setup, not brand new.
+$repoAll = $repo;
+// A generous window: this is a source-text contract, and a long explanatory
+// comment pushed the return statement past a 3000-char slice once already.
+$matchBody = (string)substr($repoAll, (int)strpos($repoAll, 'function match'), 6000);
+check($matchBody !== '', 'GameRepo::match() exists');
+
+$rules = [
+    'only waiting games'        => 'status = :waiting',
+    'only games with a free seat' => 'black_user IS NULL',
+    'never the creator yourself' => 'white_user <> :me',
+    'only the same starting position' => 'fen = :fen',
+    'only the same time control' => 'tc_base_ms = :base',
+    'oldest waiter first'       => 'ORDER BY created_ms ASC',
+];
+foreach ($rules as $label => $needle) {
+    check(str_contains($matchBody, $needle), "matchmaking: {$label}", $needle);
+}
+
+// NO minimum-age clause. It reads like a sensible guard against being matched
+// into the room you just left, but the query already refuses that (you cannot
+// be the creator, and a room you were seated in has black_user set). What it
+// really did was stop two people who pressed quick play in the same second from
+// ever meeting - the one job this feature has. Abandoned rooms are expireStale's
+// job now, and it has a two-minute TTL for unjoined rooms.
+check(
+    !str_contains($matchBody, 'created_ms <'),
+    'matchmaking: no minimum-age clause, or quick players never meet'
+);
+
+// A race is normal: two people click at once, both read the same candidate, and
+// one of them loses the seat. That must be a "try the next one", not a 500.
+check(
+    str_contains($matchBody, "errorCode === 'seat_taken'"),
+    'matchmaking: losing the seat race is handled, not thrown'
+);
+
+// When nobody is waiting it must still hand back a game, or the caller has
+// nothing to poll and the button appears to do nothing.
+check(
+    str_contains($matchBody, "'matched' => false"),
+    'matchmaking: finding nobody is a waiting game, not a failure'
+);
+check(
+    str_contains($matchBody, "'matched' => true"),
+    'matchmaking: sitting down reports matched'
+);
+
 group('save() persists every column the rest of the code mutates');
 
 // save() wrote every column of a game EXCEPT white_user and black_user, so

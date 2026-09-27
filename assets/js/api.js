@@ -81,7 +81,11 @@ export const api = {
   // -- games -----------------------------------------------------------------
   createGame: ({ baseMs, incrementMs, open, fen }) =>
     post('game.php', { action: 'create', tc_base_ms: baseMs, tc_increment_ms: incrementMs, open, fen }),
-  joinGame: (code) => post('game.php', { action: 'join', code }),
+    joinGame: (code) => post('game.php', { action: 'join', code }),
+    // matchmaking: the server either seats us with somebody or puts us in a new
+    // open game to wait in, so a short timeout here is not a failure
+    quickMatch: ({ baseMs, incrementMs, fen } = {}) =>
+      post('game.php', { action: 'quick', tc_base_ms: baseMs, tc_increment_ms: incrementMs, fen }, { timeout: 12000 }),
   state: (game, sinceMove = 0) => post('game.php', { action: 'state', game, since_move: sinceMove }, { timeout: 8000 }),
   // the same state, addressed by room code, for somebody opening a shared link
   watchGame: (code) => post('game.php', { action: 'state', code }, { timeout: 8000 }),

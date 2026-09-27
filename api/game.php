@@ -165,6 +165,37 @@ Http::endpoint(static function (): void {
                 'now_ms' => $now,
             ]);
 
+        case 'quick':
+            // Quick match. Matchmaking is a read of the open games plus a seat,
+            // so the only cost worth limiting is the one that writes - and a
+            // search that finds nobody writes one row.
+            Http::throttle('quick', 15, 8);
+            $base  = Http::int('tc_base_ms', 600_000);
+            $incr  = Http::int('tc_increment_ms', 0);
+            $fenIn = Http::str('fen', 120);
+            if ($base < 0 || $base > 1000 * 60 * 60 * 6) {
+                throw new HttpError('bad_time', 'Time control out of range.', 422);
+            }
+            if ($incr < 0 || $incr > 60_000) {
+                throw new HttpError('bad_time', 'Increment out of range.', 422);
+            }
+            $found = GameRepo::match(
+                (int)$me['id'],
+                $base,
+                $incr,
+                $fenIn !== '' ? gameSanitiseFen($fenIn) : Chess::START_FEN,
+                $now
+            );
+            GameRepo::expireStale($now);
+            Http::done([
+                'game'    => gameStampMe(GameState::publicState($found['game'], gamePlayers($found['game'], $now), [], $now), $me),
+                'code'    => $found['code'],
+                // false means "nobody was there, so you are the queue now" - the
+                // client just keeps polling, which is the waiting-for-opponent UI
+                'matched' => $found['matched'],
+                'now_ms'  => $now,
+            ]);
+
         case 'join':
             Http::throttle('join', 20, 10);
             $game   = $loadGame();

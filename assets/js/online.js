@@ -260,6 +260,18 @@ export async function joinGame(code) {
   return res.code;
 }
 
+/**
+ * Quick match. Returns true if an opponent was found and seated straight away,
+ * false if nobody was waiting - in which case we are now the waiting game and
+ * startPolling() will bring the opponent in when they arrive. Both outcomes are
+ * a game you are in; the difference is only how long the board says "waiting".
+ */
+export async function quickMatch(opts) {
+  const res = await api.quickMatch(opts);
+  adopt(res, res.code);
+  return Boolean(res.matched);
+}
+
 /** Open a game somebody else made, without taking a seat. */
 export async function watch(code) {
   const res = await api.watchGame(code);

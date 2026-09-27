@@ -24,6 +24,19 @@ final class GameRepo
     /** Elo K-factor. 32 is the classic value: ~16 games to settle a new player. */
     private const K = 32;
 
+    /**
+     * How long an open game waits for somebody before it is given up on.
+     *
+     * A waiting game with a NULL black seat is somebody sitting alone in a room
+     * that is being offered to every player who presses quick play. If the
+     * person who made it walks away, nothing else closes it: the general stale
+     * sweep is 30 days, so their abandoned room would be offered to strangers for
+     * a month, and whoever took it would sit waiting for an opponent who was
+     * never coming. Two minutes is a long time to wait for a human.
+     */
+    public const MATCH_OPEN_TTL_MS = 120_000;
+
+
     private const COLUMNS = 'id, code, status, white_user, black_user, fen, ply, sans, pgn,
                              tc_base_ms, tc_increment_ms, white_ms, black_ms,
                              turn_started_at_ms, turn_started_ms, result, reason,
@@ -203,6 +216,101 @@ final class GameRepo
                 'now'       => Db::nowMs(),
             ]
         );
+    }
+
+    /**
+     * Quick match: sit down with whoever has been waiting longest, or become the
+     * next one waiting.
+     *
+     * There is deliberately no queue table. An open game - one with a creator in
+     * white and a NULL black seat - already IS somebody saying "I want to play",
+     * so matchmaking is just "find the oldest open game that fits and sit in it".
+     * One fewer table to migrate, and the moment the last player leaves, the
+     * queue is empty by construction instead of by cleanup.
+     *
+     * Returns {matched:bool, game:array, code:string}. matched is false when
+     * there was nobody to play, which is not a failure: the caller gets a
+     * waiting game and sits in it.
+     *
+     * @return array<string,mixed>
+     */
+    public static function match(int $userId, int $baseMs, int $incrMs, string $fen, int $now): array
+    {
+        // There is deliberately no "the room must be at least N seconds old"
+        // clause here, and that took two attempts to learn. The instinct is to
+        // add one so a player is never matched into the room they just walked
+        // out of - but the query already refuses that on its own terms:
+        //   white_user <> :me  you are not the one who made it, and
+        //   black_user IS NULL it has nobody in it,
+        // and a room you were ever *seated* in has black_user set, so it is not a
+        // candidate anyway. What the age guard actually broke was the only case
+        // quick play exists for: two people pressing the button at the same
+        // moment. At 3s they were never paired; at 1.2s still not, because a
+        // round trip is faster than that. Abandoned rooms are handled by
+        // expireStale() instead, which now gives up on an unjoined room after
+        // MATCH_OPEN_TTL_MS rather than the 30 days the general sweep uses.
+        //
+        // Two people clicking at the same moment will pick the same candidate,
+        // so losing the race is normal rather than exceptional. Try a handful
+        // and then give up and wait, which is always a valid outcome.
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $candidates = Db::all(
+                'SELECT id FROM games
+                  WHERE status = :waiting
+                    AND black_user IS NULL
+                    AND white_user IS NOT NULL
+                    AND white_user <> :me
+                    AND fen = :fen
+                    AND tc_base_ms = :base
+                    AND tc_increment_ms = :incr
+                  ORDER BY created_ms ASC
+                  LIMIT 5',
+                [
+                    'waiting' => GameState::WAITING,
+                    'me'      => $userId,
+                    'fen'     => $fen,
+                    'base'    => $baseMs,
+                    'incr'    => $incrMs,
+                ]
+            );
+            if ($candidates === []) {
+                break;
+            }
+            foreach ($candidates as $row) {
+                try {
+                    $seated = self::seat((int)$row['id'], $userId, $now);
+                    if (($seated['error'] ?? null) === 'already_seated') {
+                        continue;
+                    }
+                    return [
+                        'matched' => true,
+                        'game'    => $seated['game'],
+                        'code'    => (string)$seated['game']['code'],
+                    ];
+                } catch (HttpError $e) {
+                    // Somebody took that seat between our SELECT and our seat().
+                    // That is the race we expect, so try the next one.
+                    if ($e->errorCode === 'seat_taken') {
+                        continue;
+                    }
+                    throw $e;
+                }
+            }
+        }
+
+        // Nobody to play. Create an open game and wait in it.
+        $game = GameState::create([
+            'white_user'      => $userId,
+            'black_user'      => null,
+            'tc_base_ms'      => $baseMs,
+            'tc_increment_ms' => $incrMs,
+            'fen'             => $fen,
+            'now_ms'          => $now,
+        ]);
+        $inserted = self::insert($game);
+        $game['id']   = $inserted['id'];
+        $game['code'] = $inserted['code'];
+        return ['matched' => false, 'game' => $game, 'code' => $game['code']];
     }
 
     /**
@@ -547,10 +655,20 @@ final class GameRepo
     {
         $st = Db::run(
             "UPDATE games SET status = 'ended', reason = 'abandoned', updated_ms = :now
-              WHERE status IN ('waiting','active') AND updated_ms < :cut",
+                 WHERE status IN ('waiting','active') AND updated_ms < :cut",
             ['now' => $now, 'cut' => $now - self::STALE_MS]
         );
-        return $st->rowCount();
+        // Separately: an OPEN room nobody joined goes much sooner than a game in
+        // progress. This is what keeps the matchmaking queue honest - without it
+        // a room whose creator closed the tab stays attractive to strangers for
+        // a month, and whoever sits down in it waits for an opponent who is not
+        // coming. See MATCH_OPEN_TTL_MS.
+        $open = Db::run(
+            "UPDATE games SET status = 'ended', reason = 'abandoned', updated_ms = :now2
+                 WHERE status = 'waiting' AND black_user IS NULL AND created_ms < :open_cut",
+            ['now2' => $now, 'open_cut' => $now - self::MATCH_OPEN_TTL_MS]
+        );
+        return $st->rowCount() + $open->rowCount();
     }
 
     /**
