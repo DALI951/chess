@@ -78,6 +78,22 @@ npm run test:everything   # all of the above
 | `tools/design-audit.mjs` | The taste rules as assertions: AA on everything you read, one red and no second hue, a small type scale, 44px targets, and no sideways scroll on a 360px phone. |
 | `tools/gate-flash.mjs` | Samples the login card from before the first paint, in a returning player's browser, a new player's browser, and a browser whose hint has gone stale. |
 
+Against the deployed site:
+
+```bash
+python scripts/live-smoke.py     # 30 checks: auth, ratings, leaderboard, matchmaking
+python scripts/live-match.py     # 22 checks: pairing three players onto two games
+node tools/live-browser.mjs      # 16 checks in two real browsers, invite link included
+python scripts/live-secrets.py   # 13 secret URLs must be refused, 4 real ones served
+python scripts/run-db-cleanup.py --apply   # delete what the tests above left behind
+```
+
+`live-secrets.py` exists because a deploy once published the SFTP password.
+Nothing was failing at the time: the site worked and every suite was green, and
+`scripts/credentials.local.json` still answered a public GET with the password
+in plain text. A test that only asks whether the app works cannot see that,
+because the app was working.
+
 Regenerate the parity corpus with `npm run fixtures:gen`, and screenshot the UI with
 `npm run test:ui:shots` (drop the PNGs in `tools/shots/`, gate included).
 

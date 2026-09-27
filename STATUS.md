@@ -63,7 +63,13 @@ exists, and the deploy deletes it from the server.
   `tests/php/PrepareTest.php` fails the build if one ever slips back in.
 - **Do not test a deployed `.php` with a GET.** It executes and returns an
   empty body. A 200 with 0 bytes proves only that the file parsed.
-- **Never commit `.env` or `scripts/credentials.local.json`.**
+- **Never commit `.env` or `scripts/credentials.local.json`.** The deploy selects
+  what to upload from `git ls-files`, so a gitignored file cannot reach the
+  server even by accident, and it refuses to run if one shows up in the plan
+  anyway. `python scripts/live-secrets.py` checks the deployed site answers 403
+  or 404 for thirteen secret paths. **The SFTP password was published once by
+  this bug and has been removed, but it still needs rotating in the hosting
+  panel.**
 
 ## 4. The three bugs that broke online play
 

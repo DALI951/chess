@@ -23,11 +23,11 @@ Credentials come from the environment, or from scripts/credentials.local.json
 """
 import json
 import os
+import subprocess
 import sys
 import posixpath
 import stat
 import socket
-
 import paramiko
 
 HOST = "modali.powerpme.com"
@@ -41,7 +41,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".github", "shots", "test-results"}
 # the template and the real config are both handled explicitly below
-SKIP_FILES = {"config.example.php", "config.local.php", ".env", ".env.example", ".env.local"}
+# Anything git tracks that must still not have a public URL. `.env` is uploaded
+# explicitly further down, because it is the one secret the server genuinely
+# needs; the others are only ever uploaded transiently, by the script that uses
+# them, which takes them off again afterwards.
+SKIP_FILES = {
+    "config.example.php", "config.local.php",
+    ".env", ".env.example", ".env.local",
+    # a token-guarded row-deleting script has no business having a permanent URL
+    "db-cleanup.php", "setup.php",
+}
 
 # Replaced with a content hash on every deploy. See the block in main().
 STAMP_TOKEN = "ASSETSTAMP"
@@ -70,16 +79,89 @@ def creds():
 
 
 def walk(base):
+    """The files to upload, taken from git rather than from the filesystem.
+
+    This used to walk the directory and skip a hand-written list of filenames.
+    That list is the wrong shape for the job: it can only name the secrets
+    somebody remembered, and a new gitignored file is invisible to it. So
+    scripts/credentials.local.json - the SFTP password - was uploaded to a
+    public URL, because nobody had added it to the list.
+
+    `git ls-files` cannot have that failure. Anything in .gitignore is, by
+    definition, not in the index, so it cannot be selected here. The secret
+    files stop being a thing to remember and become a thing that is impossible.
+    """
+    tracked = git_tracked(base)
     out = []
     for dirpath, dirnames, filenames in os.walk(base):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn in SKIP_FILES:
                 continue
+            # A dotfile has no business on a web server except the one that makes
+            # it safe. .gitignore was being published, which is harmless on its
+            # own and an invitation on its own terms: it is a list of the exact
+            # filenames an attacker should try.
+            if fn.startswith(".") and fn != ".htaccess":
+                continue
             full = os.path.join(dirpath, fn)
             rel = os.path.relpath(full, base).replace(os.sep, "/")
+            if tracked is not None and rel not in tracked:
+                # untracked and not gitignored: a build artefact, or something
+                # that was never added. Deploying a file git does not know about
+                # is how a machine-local file ends up on the internet.
+                continue
             out.append((rel, full))
     return out
+
+
+def gitignored_in_plan(base, rels):
+    """Which of these paths does git ignore? Empty if git cannot answer.
+
+    -z matters here, on both sides. Without it git quotes any path it thinks
+    needs escaping, and on Windows writing text=True to a subprocess' stdin
+    turns every "\\n" into "\\r\\n" - so the last path on each line arrives
+    carrying a phantom carriage return and the comparison silently stops
+    matching. That is how a guard like this passes while catching nothing. And
+    -z makes the INPUT NUL-separated too, so the patterns go out joined by NUL
+    with a trailing one, and the output comes back the same way, unquoted.
+
+    Note that .env is in the plan on purpose and is gitignored; the caller
+    uploads it explicitly, so it is allowed through here.
+    """
+    allowed = {".env"}
+    paths = [p for p in rels if p not in allowed]
+    if not paths:
+        return []
+    try:
+        r = subprocess.run(
+            ["git", "-C", base, "check-ignore", "-z", "--stdin"],
+            input=("\0".join(paths) + "\0").encode("utf-8"),
+            capture_output=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []          # cannot check: walk() is still filtering by git ls-files
+    if r.returncode not in (0, 1):
+        return []
+    return [p for p in r.stdout.decode("utf-8", "replace").split("\0") if p.strip()]
+
+
+def git_tracked(base):
+    """Every path git has in the index, as posix relative paths. None if git is
+    unavailable, which makes walk() fall back to walking the tree - the old,
+    unsafe behaviour, so this says so out loud rather than pretending."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", base, "ls-files", "-z"],
+            capture_output=True, timeout=60, check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"WARNING: git ls-files failed ({e}).")
+        print("WARNING: falling back to walking the directory, so a gitignored")
+        print("WARNING: secret CAN be uploaded. Commit your secrets' .gitignore")
+        print("WARNING: rules and make sure git is on PATH, or check SKIP_FILES.")
+        return None
+    return {p for p in r.stdout.decode("utf-8", "replace").split("\0") if p}
 
 
 def rm_rf(sftp, path):
@@ -165,6 +247,21 @@ def main():
 
     files = walk(ROOT)
     files.sort()
+
+    # Belt and braces, and the check that would have caught the credentials leak.
+    # walk() already selects from `git ls-files`, so a gitignored file cannot get
+    # in - but that is one mechanism doing all the work, and this asserts the
+    # outcome directly. If a future change to walk() reintroduces the old
+    # "skip a list of filenames I remembered" behaviour, the deploy stops here
+    # with the name of the file in it, instead of publishing a password.
+    leaks = gitignored_in_plan(ROOT, [rel for rel, _ in files])
+    if leaks:
+        print("\nREFUSING TO DEPLOY. These files are gitignored and must not be uploaded:")
+        for rel in leaks:
+            print(f"   {rel}")
+        print("\nIf one of these is genuinely meant to be public, un-ignore it and")
+        print("commit that, rather than adding it to SKIP_FILES here.")
+        return 1
 
     # --- the cache stamp --------------------------------------------------------
     # .htaccess serves every .js and .css as max-age=31536000, immutable: one
