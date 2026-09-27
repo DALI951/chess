@@ -49,7 +49,7 @@ def connect():
 def main():
     token = load_token()
     if not token:
-        raise SystemExit("no setup token. set CHESS_SETUP_TOKEN, or put one in config.local.php")
+        raise SystemExit("no setup token. set CHESS_SETUP_TOKEN, or put one in .env")
 
     t, s = connect()
     original = None

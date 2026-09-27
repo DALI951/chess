@@ -8,9 +8,11 @@ wipe the app folder -> re-upload. Two things worth knowing about this one:
     212.227.215.235 fails authentication on the same credentials, which looks
     exactly like a wrong password and is not one.
 
-  * config.local.php holds the database password. It goes to exactly one place,
-    the app's own directory, which the .htaccess beside it denies. It must never
-    be written to /public_html/, which is the document root.
+  * .env holds the database password. It goes to exactly one place, the app's
+    own directory, which the .htaccess beside it denies. It must never be
+    written to /public_html/, which is the document root. The deploy also
+    removes the old config.local.php from the server, since Config.php reads
+    .env first and a stale copy of the password lying around is a liability.
 
 Credentials come from the environment, or from scripts/credentials.local.json
 (gitignored), so a password never lands in a commit. Usage:

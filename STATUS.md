@@ -23,11 +23,14 @@ finished, what is not, and the traps that already cost time.
 | Online multiplayer | **Live and verified end to end.** Create, join by code, moves, illegal-move refusal, resign, draw, flag, Elo settlement. |
 | Chat | **Live,** seated players only. |
 | Social | **Live.** Friends, friend requests, leaderboard. |
+| Front door | **Live.** The account card is the first screen, with its own language switch, and one click through to playing without an account. |
 | Database | **Live.** 9 tables installed on `modalidb`. |
 | Deployment | **Live** at https://modali.powerpme.com/chess/ |
 
-All four suites are green: 595 PHP assertions, 102 JS assertions, UI smoke, and
-visual checks. `scripts/live-smoke.py` runs 30 checks against the real server.
+All seven suites are green: 595 PHP assertions, 102 JS assertions, UI smoke,
+visual checks, a 43-assertion design audit, and the gate-flash suite.
+`scripts/live-smoke.py` runs 30 checks against the real server and
+`scripts/live-match.py` runs 22 more.
 
 ## 2. Deploying
 
@@ -40,9 +43,11 @@ Wipes and re-uploads **only** `/public_html/chess`. The other ~25 sites sharing
 `public_html` are not touched. Credentials come from the environment or the
 gitignored `scripts/credentials.local.json`; there is no password in the repo.
 
-`config.local.php` holds the database password and is re-uploaded after the
-wipe, to `/public_html/chess/config.local.php` only. The app's `.htaccess`
-denies that filename, so the request is refused before PHP ever runs.
+`.env` holds the database password and is re-uploaded after the wipe, to
+`/public_html/chess/.env` only. The app's `.htaccess` denies that filename — and
+`.env.example` with it — so the request is refused before PHP ever runs.
+`config.local.php` is the previous mechanism: `Config.php` still reads it if it
+exists, and the deploy deletes it from the server.
 
 ## 3. Traps that already cost time
 
@@ -58,7 +63,7 @@ denies that filename, so the request is refused before PHP ever runs.
   `tests/php/PrepareTest.php` fails the build if one ever slips back in.
 - **Do not test a deployed `.php` with a GET.** It executes and returns an
   empty body. A 200 with 0 bytes proves only that the file parsed.
-- **Never commit `config.local.php` or `scripts/credentials.local.json`.**
+- **Never commit `.env` or `scripts/credentials.local.json`.**
 
 ## 4. The three bugs that broke online play
 

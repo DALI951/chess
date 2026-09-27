@@ -3,14 +3,24 @@ declare(strict_types=1);
 /**
  * Delete the accounts and games the live tests created. TEMPORARY, one-shot.
  *
- * The site has no delete-account feature, so scripts/live-smoke.py cannot clean
- * up after itself and every run leaves two accounts and a finished game behind.
- * On a leaderboard that is worse than useless - a new player sees "Smoke w 1516"
- * at the top. This removes exactly the test debris and nothing else.
+ * The site has no delete-account feature, so scripts/live-smoke.py and
+ * scripts/live-match.py cannot clean up after themselves and every run leaves
+ * accounts and a finished game behind. On a leaderboard that is worse than
+ * useless - a new player sees "Smoke w 1516" at the top. This removes exactly
+ * the test debris and nothing else.
  *
- * Two guards, because this deletes rows and it briefly sits at a public URL:
- *   1. it needs the setup token
- *   2. it refuses to run unless every single user matches a test username
+ * It needs the setup token, and the pattern is deliberately narrow: `probe_` and
+ * `smoke_` are the only two prefixes scripts/live-match.py and
+ * scripts/live-smoke.py ever create, so they are the only two things matched.
+ * An earlier version also matched `dali[0-9]*_`, which is one rename away from
+ * deleting the owner's own account, and it refused to run at all once the site
+ * had a single real player - which is to say it stopped working the moment the
+ * site started being worth cleaning.
+ *
+ * What replaces that guard: the delete set is built from the pattern and
+ * nothing else, and before deleting anything this asserts that set does not
+ * contain a single user outside the pattern, and that it is not about to empty
+ * the table. Real accounts are counted, named in the output, and never touched.
  *
  * Run it through scripts/run-db-cleanup.py, which deletes this file afterwards.
  *
@@ -27,29 +37,44 @@ if (!hash_equals((string)Config::setupToken(), $expected)) {
 }
 $apply = (($_GET['mode'] ?? '') === 'apply');
 
+// Exactly the two prefixes the live test scripts create, and nothing wider. A
+// pattern loose enough to catch a real account is worse than no cleanup at all.
+$TEST_USER_RE = '^(probe|smoke)_';
+
 $userIds = [];
-foreach (Db::all("SELECT id FROM users WHERE username REGEXP '^(probe|smoke|dali)[0-9]*_'") as $r) {
+foreach (Db::all("SELECT id, username FROM users WHERE username REGEXP '$TEST_USER_RE'") as $r) {
     $userIds[] = (int)$r['id'];
 }
-$u = implode(',', $userIds) ?: '0';
+$u = implode(',', $userIds ?: [0]);
 
 $gameIds = [];
 foreach (Db::all("SELECT id FROM games WHERE white_user IN ($u) OR black_user IN ($u)") as $r) {
     $gameIds[] = (int)$r['id'];
 }
-$g = implode(',', $gameIds) ?: '0';
+$g = implode(',', $gameIds ?: [0]);
 
-$strangers = Db::one("SELECT COUNT(*) c FROM users WHERE id NOT IN ($u)")['c'];
+// The real accounts, named out loud, so the output is a receipt and not a promise.
+$keepers = Db::all("SELECT id, username FROM users WHERE username NOT REGEXP '$TEST_USER_RE' ORDER BY id");
 
-echo "test users : " . count($userIds) . "\n";
-echo "test games : " . count($gameIds) . "\n";
-echo "other users: $strangers\n";
+echo "test users  : " . count($userIds) . "\n";
+echo "test games  : " . count($gameIds) . "\n";
+echo "kept (real) : " . count($keepers) . "\n";
+foreach ($keepers as $k) {
+    echo "   keeping  #{$k['id']}  {$k['username']}\n";
+}
 
-if ($strangers > 0) {
-    exit("STOPPED: $strangers account(s) are not test accounts, so I will not guess.\n");
+// The guards. The deletes below are scoped to $u by construction, so these are
+// assertions that the construction held, not hopes that it did.
+$total = (int)Db::one('SELECT COUNT(*) c FROM users')['c'];
+$leaked = (int)Db::one("SELECT COUNT(*) c FROM users WHERE id NOT IN ($u) AND username REGEXP '$TEST_USER_RE'")['c'];
+if ($leaked > 0) {
+    exit("STOPPED: $leaked matched user(s) fell outside the delete set. Not guessing.\n");
+}
+if ($total > 0 && count($userIds) === $total) {
+    exit("STOPPED: every account on the site looks like a test account. Refusing to empty the table.\n");
 }
 if (count($userIds) === 0) {
-    echo "nothing to do\n";
+    echo "\nnothing to do\n";
     exit(0);
 }
 
